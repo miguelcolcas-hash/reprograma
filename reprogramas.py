@@ -76,16 +76,17 @@ def clasificar_tecnologia_yupana(nombre_central, origen_archivo=""):
     hidro_kws = ["HIDRO", "CH ", "C.H.", "MANTARO", "RESTITUCION", "CHAGLLA", "CERRO DEL AGUILA", "MACHUPICCHU", "HUINCO", "CHARCANI", "CAÑON DEL PATO", "SAN GABAN", "CHIMAY", "PLATANAL", "YUNCHAN", "QUISHUAR", "AURA", "ZONGO", "CARPAPATA", "LA JOYA", "STACRUZ", "HUASAHUASI", "RONCADOR", "PURMACANA", "NIMPERIAL", "PIZARRAS", "POECHOS", "CANCHAYLLO", "CHANCAY", "RUCUY", "RUNATULLO", "YANAPAMPA", "POTRERO", "YARUCAYA", "CHANGELI", "8AGOSTO", "RENOVANDESH", "EL CARMEN", "TUPURI", "HUALLIN", "GALLITO", "YAUPI", "MATUCANA", "CALLAHUANCA", "MOYOPAMPA", "HUANZA", "CHEO", "CHURO", "CHHER", "CHZANA", "CURUMUY", "PIAS"]
     if origen_archivo == "HIDRO" or any(kw in nombre for kw in hidro_kws): return "Hidráulica"
         
-    # FILTRO ESTRICTO DE CICLOS COMBINADOS Y DUALES PARA PROTEGER INACTIVA DIÉSEL
+    # 1ro: EVALUAR SI ES DIÉSEL EXPLICITAMENTE (Atrapa casos como "FENIX CCOMB GT12 D2")
+    diesel_kws = ["D2", "R6", "RESIDUAL", "DIESEL", "ILO21", "ILO 21", "ILO1", "ILO 1", "MOLLENDO", "RECKA", "INDEPENDENCIA", "SAMANCO", "TARAPOTO", "IQUITOS", "YURIMAGUAS", "PUERTO MALDONADO", "BELLAVISTA", "PEDRO RUIZ", "ETEN", "PIURA D", "CALANA", "ELOR", "SHCUMMINS", "SNTV", "NEPI", "PUERTO BRAVO", "NODO"]
+    if any(kw in nombre for kw in diesel_kws): return "Residual+Diésel D2"
+
+    # 2do: FILTRO DE CICLOS COMBINADOS Y DUALES (Si llegó aquí, es porque NO tiene sufijo D2/Residual explícito, por tanto es Gas)
     duales_gas_kws = ["FENIX", "KALLPA", "CHILCA", "VENTANILLA", "LAS FLORES", "SANTO DOMINGO", "MALACAS", "TALLANCA", "AGUAYTIA", "TERMOSELVA"]
     if any(ex in nombre for ex in duales_gas_kws):
         if any(kw in nombre for kw in ["MALACAS", "TALLANCA", "AGUAYTIA", "TERMOSELVA"]):
             return "Gas del Norte+Gas de la Selva"
         return "Gas de Camisea"
             
-    diesel_kws = ["D2", "R6", "RESIDUAL", "DIESEL", "ILO21", "ILO 21", "ILO1", "ILO 1", "MOLLENDO", "RECKA", "INDEPENDENCIA", "SAMANCO", "TARAPOTO", "IQUITOS", "YURIMAGUAS", "PUERTO MALDONADO", "BELLAVISTA", "PEDRO RUIZ", "ETEN", "PIURA D", "CALANA", "ELOR", "SHCUMMINS", "SNTV", "NEPI", "PUERTO BRAVO", "NODO"]
-    if any(kw in nombre for kw in diesel_kws): return "Residual+Diésel D2"
-        
     gas_norte_kws = ["AGUAYTIA", "TERMOSELVA", "PUCALLPA", "MALACAS", "ZORRITOS", "PARIÑAS", "EEEP", "ENEL PIURA", "PIURA G", "NUEVA ZORRITOS", "AGE", "TALLANCA", "MAL2", "TABLAZO"]
     if any(kw in nombre for kw in gas_norte_kws): return "Gas del Norte+Gas de la Selva"
         
@@ -164,10 +165,13 @@ def renombrar_con_sufijos(diccionario_series, tipo_origen):
 
 # EXTRAE EL MOTIVO DINÁMICAMENTE BUSCANDO LA PALABRA "MOTIVO" EN LA COLUMNA C
 def extraer_motivo_dinamico(y, m, M, d, ddmm, l, headers):
+    # RUTAS DE EXTRACCIÓN AMPLIADAS PARA CUBRIR TODAS LAS FORMAS DE NOMBRAR CARPETAS EN EL COES
     urls = [
         f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog%20{ddmm}{l}%2FReprog_{ddmm}{l}.xlsx",
         f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog%20{ddmm}%20{l}%2FReprog_{ddmm}{l}.xlsx",
-        f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog%20{ddmm}{l}%2F{ddmm}{l}.xlsx"
+        f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog%20{ddmm}{l}%2F{ddmm}{l}.xlsx",
+        f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog_{ddmm}{l}%2FReprog_{ddmm}{l}.xlsx",
+        f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog_{ddmm}{l}%2F{ddmm}{l}.xlsx"
     ]
     for u in urls:
         try:
@@ -190,7 +194,8 @@ def extraer_motivo_dinamico(y, m, M, d, ddmm, l, headers):
             pass
     return "No se pudo extraer el archivo de origen o hubo un error de lectura."
 
-@st.cache_data(show_spinner=False)
+# TTL=300 EVITA EL POISONING DEL CACHÉ DURANTE EL ÚLTIMO DÍA: SE ACTUALIZA CADA 5 MINUTOS
+@st.cache_data(show_spinner=False, ttl=300)
 def extraer_datos_dia_memoria(f):
     y, m, d = f.strftime("%Y"), f.strftime("%m"), f.strftime("%d")
     M = MES_TXT[f.month-1]
@@ -210,7 +215,9 @@ def extraer_datos_dia_memoria(f):
         urls_a_intentar[f"RDO_{l}"] = [
             f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog%20{ddmm}{l}%2FYUPANA_{ddmm}{l}.zip",
             f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog%20{ddmm}%20{l}%2FYUPANA_{ddmm}{l}.zip",
-            f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog%20{ddmm}{l}%2FYUPANA_{fecha_str}{l}.zip"
+            f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog%20{ddmm}{l}%2FYUPANA_{fecha_str}{l}.zip",
+            f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog_{ddmm}{l}%2FYUPANA_{ddmm}{l}.zip",
+            f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog_{ddmm}{l}%2FYUPANA_{fecha_str}{l}.zip"
         ]
 
     datos_dia = {"Dataframes": {}, "Log": []}
@@ -246,7 +253,7 @@ def extraer_datos_dia_memoria(f):
 
 # --- 5. MOTOR GRÁFICO MAESTRO MULTIDÍA (SIN TÍTULOS NATIVOS) ---
 def crear_grafica_area_apilada(df_plot, marcadores=None, aplicar_colores=False, orden_fijo=None):
-    df_plot = df_plot.fillna(0)
+    df_plot = df_plot.copy().fillna(0)
     num_cols = [c for c in df_plot.columns if c != 'Hora']
     df_plot[num_cols] = df_plot[num_cols].apply(pd.to_numeric, errors='coerce').fillna(0).round(2)
     
@@ -264,10 +271,8 @@ def crear_grafica_area_apilada(df_plot, marcadores=None, aplicar_colores=False, 
     cols_mantener = ['Hora', 'TOTAL_SISTEMA'] + orden_columnas
     df_melt = df_plot[cols_mantener].melt(id_vars=['Hora', 'TOTAL_SISTEMA'], var_name='Unidad Generadora', value_name='Potencia_MW')
     
-    # Se conserva la base matemática para evitar polígonos rotos
     df_melt['Potencia_Plot'] = df_melt['Potencia_MW']
     
-    # Se omite 'title' para evitar superposiciones de texto
     kw_args = {"data_frame": df_melt, "x": "Hora", "y": "Potencia_Plot", "color": "Unidad Generadora", "labels": {"Potencia_Plot": "Potencia Activa (MW)"}}
     if aplicar_colores: kw_args["color_discrete_map"] = COLOR_MAP
     
@@ -276,7 +281,6 @@ def crear_grafica_area_apilada(df_plot, marcadores=None, aplicar_colores=False, 
     
     fig.add_scatter(x=df_plot['Hora'], y=df_plot['TOTAL_SISTEMA'], mode='lines', line=dict(width=0, color='rgba(0,0,0,0)'), name='<b>⚡ TOTAL SISTEMA</b>', showlegend=False)
     
-    # HOVER INTELIGENTE: Ignora 0 MW y agrega la fecha/hora debajo de la potencia
     for trace in fig.data:
         y_vals = trace.y
         hover_flags = []
@@ -312,7 +316,6 @@ def crear_grafica_area_apilada(df_plot, marcadores=None, aplicar_colores=False, 
             
     fig.add_annotation(x=pico_hora, y=pico_mw, text=f"<b>Pico Máximo: {pico_mw:,.2f} MW</b><br>{pico_hora.strftime('%d/%m %H:%M')}", showarrow=True, arrowhead=2, arrowsize=1.5, arrowwidth=2, arrowcolor="#e74c3c", ax=0, ay=-50, font=dict(size=12, color="#c0392b"), bgcolor="rgba(255,255,255,0.8)", bordercolor="#c0392b", borderwidth=1, borderpad=4)
     
-    # Margen Top (t=150) expandido para no tapar los globos
     fig.update_layout(hovermode="x unified", height=650, margin=dict(t=150, b=50, l=60, r=50))
     return fig
 
@@ -342,7 +345,7 @@ if st.sidebar.button("Construir Matriz de Operación Continua", type="primary"):
         status.success("✅ Motor Dimensional Compilado con Éxito.")
         prog_bar.empty()
 
-# --- 7. VISUALIZACIÓN DINÁMICA MULTIDÍA (ALGORITMO ESTRICTO MATRIZ TOTAL) ---
+# --- 7. VISUALIZACIÓN DINÁMICA MULTIDÍA ---
 if 'datos_yupana' in st.session_state:
     data = st.session_state['datos_yupana']
     fechas_ordenadas = sorted(data.keys())
@@ -368,7 +371,6 @@ if 'datos_yupana' in st.session_state:
                 "CMG": df_dia_sel[p].get("CMG")
             }
             
-        # Determinar el Reprograma Vigente en base al Despacho Activo Real
         active_prog = [progs[0]] * 48
         if len(progs) > 1:
             for p in progs[1:]:
@@ -399,7 +401,7 @@ if 'datos_yupana' in st.session_state:
         "🛑 Inactiva Diésel", "📈 Demanda y Generación", "💨 Eólico", "☀️ Solar", "📋 Motivos RDO"
     ])
 
-    # === CMG (SIN LÍMITES / RAW DATA) ===
+    # === CMG ===
     with t_cmg:
         st.markdown("### 💸 Evolución Continua del CMG")
         dfs_cmg = []
@@ -420,7 +422,6 @@ if 'datos_yupana' in st.session_state:
                         if b_strip in df_c_cols:
                             col_real = df_c_cols[b_strip]
                             v_lst = rellenar_hasta_48(extraer_columna(df_c, col_real))
-                            # EXTRAE EL VALOR PURO SIN LÍMITES
                             dia_cmg[b][i] = v_lst[i]
                             
             df_dia = pd.DataFrame(dia_cmg)
@@ -429,7 +430,6 @@ if 'datos_yupana' in st.session_state:
             
         if dfs_cmg:
             df_cmg_plot = pd.concat(dfs_cmg, ignore_index=True)
-            # Título nativo removido
             fig_cmg = px.line(df_cmg_plot, x='Hora', y=barras, labels={"value": "USD/MWh", "variable": "Barra"})
             
             for trace in fig_cmg.data:
@@ -438,14 +438,14 @@ if 'datos_yupana' in st.session_state:
             for ts, txt in marcadores_globales:
                 fig_cmg.add_vline(x=ts, line_width=1, line_dash="dash", line_color="grey")
                 txt_limpio = txt.replace("(", "").replace(")", "")
-                txt_final = f"{txt_limpio} {ts.strftime('%d/%m %H:%M')}"
+                txt_final = f"{txt_limpio} {ts.strftime('%H:%M')}"
                 align = "left" if ts.hour == 0 and ts.minute == 30 else "center"
                 fig_cmg.add_annotation(x=ts, y=1.02, yref="paper", text=f"<b>{txt_final}</b>", showarrow=False, font=dict(size=10, color="black"), bgcolor="lightgrey", textangle=-90, yanchor="bottom", xanchor=align)
                 
             fig_cmg.update_layout(hovermode="x unified", height=550, margin=dict(t=150, l=60))
             st.plotly_chart(fig_cmg, use_container_width=True)
 
-    # === RUTINA MAESTRA (EXTRAE ESTRICTAMENTE DE MATRIZ ACTIVA: HIDRO, TERMICA, RER) ===
+    # === RUTINA MAESTRA ===
     def render_tab_generico(tipo_principal):
         dfs_tab = []
         for f in fechas_ordenadas:
@@ -512,15 +512,14 @@ if 'datos_yupana' in st.session_state:
         st.markdown("### ☀️ Despacho Solar Continuo")
         render_tab_generico("SOLAR")
 
-    # === INACTIVA DIÉSEL CONTINUA (CÁLCULO POR INTERVALO AGRUPANDO MODOS CCOMB) ===
+    # === INACTIVA DIÉSEL CONTINUA (CÁLCULO POR INTERVALO Y AGRUPANDO MODOS CCOMB) ===
     with t_inactiva:
         st.markdown("### 🛑 Capacidad Inactiva Diésel/Residual")
-        st.info("Mapea la capacidad disponible no despachada en cada intervalo de media hora. Si la central enciende, su gráfica cae a 0 MW temporalmente en esa hora. Los modos de Ciclos Combinados (1x1, 2x1) se agrupan tomando su capacidad máxima para no duplicar reservas.")
+        st.info("Mapea la capacidad disponible no despachada en cada intervalo de media hora. Si la central enciende en un intervalo específico, su gráfica cae a 0 MW en esa hora. Los modos de Ciclos Combinados (1x1, 2x1) se agrupan tomando su capacidad máxima para no duplicar reservas.")
         
         dfs_inactiva = []
         mantenimiento_global = []
         
-        # Función interna para agrupar Ciclos Combinados y evitar doble suma de sus Modos (1x1, 2x1, 3x1, CCOMB)
         def get_cc_group(name):
             n_upper = name.upper()
             cc_bases = ["FENIX", "KALLPA", "CHILCA1", "CHILCA 1", "CHILCA2", "CHILCA 2", "VENTANILLA", "LAS FLORES", "SANTO DOMINGO"]
@@ -543,7 +542,6 @@ if 'datos_yupana' in st.session_state:
                         if clasificar_tecnologia_yupana(c, arch) == "Residual+Diésel D2":
                             diesel_plants.add(c)
                             
-            # AGRUPACIÓN DE MODOS MUTUAMENTE EXCLUYENTES
             grouped_plants = {}
             for c in diesel_plants:
                 grp = get_cc_group(c)
@@ -569,7 +567,6 @@ if 'datos_yupana' in st.session_state:
                         e_vals.append(e_c)
                         
                     desp_grp[i] = d_val
-                    # Extrae el MÁXIMO de la potencia efectiva de todos los modos de la central para esa hora.
                     efec_grp[i] = max(e_vals) if e_vals else 0.0
                     
                 sum_efec = sum(efec_grp)
@@ -577,7 +574,7 @@ if 'datos_yupana' in st.session_state:
                 if sum_efec == 0:
                     mantenimiento_global.append({"Fecha": f.strftime('%d/%m/%Y'), "Central": grp, "Tecnología": "Residual+Diésel D2", "Estado Operativo": "Mantenimiento / Fuera de Servicio"})
                 else:
-                    # Reserva Inactiva: Si opera (>0) en la hora, su inactividad baja a 0 en ese intervalo
+                    # Reserva Inactiva: Cae a cero sólo en las horas específicas en las que la central generó (>0)
                     idle = [0.0 if desp_grp[i] > 0 else max(0.0, round(efec_grp[i], 2)) for i in range(48)]
                     if sum(idle) > 0:
                         inactiva_dia[grp] = idle
@@ -618,7 +615,7 @@ if 'datos_yupana' in st.session_state:
             st.markdown("#### 🛠️ Centrales en Mantenimiento (0 MW Efectivo)")
             st.dataframe(pd.DataFrame(mantenimiento_global), use_container_width=True)
 
-    # === DEMANDA Y MATRIZ ENERGÉTICA (DESPACHO ACTIVO REAL) ===
+    # === DEMANDA Y MATRIZ ENERGÉTICA ===
     with t_dem:
         st.markdown("### 📈 Demanda Total del Sistema")
         dfs_demanda = []
