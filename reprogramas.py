@@ -396,7 +396,7 @@ if 'datos_yupana' in st.session_state:
                 st.plotly_chart(crear_grafica_area_apilada(df_plot, titulo), use_container_width=True)
                 st.markdown("---")
 
-    # === DEMANDA Y MATRIZ ENERGÉTICA (EMPALME CRONOLÓGICO CONTINUO) ===
+    # === DEMANDA Y MATRIZ ENERGÉTICA (EMPALME CRONOLÓGICO CON HITOS) ===
     with t_dem:
         st.markdown(f"### 📈 Demanda Total del Sistema - {fecha_analisis.strftime('%d/%m/%Y')}")
         fig_dem = go.Figure()
@@ -412,8 +412,8 @@ if 'datos_yupana' in st.session_state:
         st.plotly_chart(fig_dem, use_container_width=True)
 
         st.markdown("---")
-        st.markdown(f"### 📊 Matriz de Generación Acumulada por Tecnología (Empalme Continuo)")
-        st.info("Esta gráfica es interactiva y continua: Inicia con el Programa Diario (PDO) y se empalma automáticamente de forma cronológica con cada reprograma (RDO) en cuanto entra en vigencia en la red.")
+        st.markdown(f"### 📊 Matriz de Generación Acumulada por Tecnología (Línea de Tiempo Efectiva)")
+        st.info("Visualización continua: Muestra la evolución cronológica del día empalmando cada reprograma en su hora exacta de vigencia. Las franjas grises marcan el cambio de mando entre el PDO y los RDO.")
         
         # 1. Identificar qué programa manda en cada periodo de 30 minutos (Stitching/Empalme)
         active_prog_per_period = [programas_validos[0]] * 48
@@ -424,7 +424,7 @@ if 'datos_yupana' in st.session_state:
             vr = rellenar_hasta_48(fila_sin_primer_valor(datos_dia_sel[prog].get("RER")))
             demanda_total = suma_elementos(vh, vt, vr)
             
-            # Buscamos en qué hora operativa empieza a regir este reprograma (>100 MW para ignorar ruido)
+            # Buscamos la hora operativa donde arranca este reprograma (>100 MW de carga)
             start_idx = -1
             for i, val in enumerate(demanda_total):
                 if val > 100: 
@@ -474,13 +474,35 @@ if 'datos_yupana' in st.session_state:
             for k in stitched_tech.keys():
                 stitched_tech[k][i] = tech_by_prog[prog_reinante][k][i]
                 
-        # Limpieza de tecnologías apagadas (0 MW)
+        # Limpieza de tecnologías apagadas
         stitched_tech = {k: v for k, v in stitched_tech.items() if sum([x for x in v if pd.notna(x)]) > 0}
         
         if stitched_tech:
             df_tech = pd.DataFrame(stitched_tech)
             df_tech.insert(0, 'Hora', horas_str)
-            st.plotly_chart(crear_grafica_area_apilada(df_tech, "Distribución Energética Consolidada Continua"), use_container_width=True)
+            fig_stitched = crear_grafica_area_apilada(df_tech, "Distribución Energética Consolidada Continua")
+            
+            # 4. AÑADIR MARCADORES VISUALES DE TRANSICIÓN DE PROGRAMAS
+            prog_actual = active_prog_per_period[0]
+            for i in range(1, 48):
+                if active_prog_per_period[i] != prog_actual:
+                    prog_actual = active_prog_per_period[i]
+                    hora_cambio = horas_str[i]
+                    
+                    # Línea vertical de corte
+                    fig_stitched.add_vline(
+                        x=hora_cambio, line_width=2, line_dash="dash", line_color="rgba(255,255,255,0.7)"
+                    )
+                    # Etiqueta indicadora
+                    fig_stitched.add_annotation(
+                        x=hora_cambio, y=1.05, yref="paper",
+                        text=f"<b>Inicia {prog_actual.replace('_', ' ')}</b>",
+                        showarrow=False, font=dict(size=11, color="white"),
+                        bgcolor="#e74c3c", bordercolor="white", borderwidth=1, borderpad=3,
+                        xanchor="center"
+                    )
+                    
+            st.plotly_chart(fig_stitched, use_container_width=True)
 
     # === EÓLICO ===
     with t_eol:
