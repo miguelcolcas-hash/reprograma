@@ -55,26 +55,26 @@ ORDEN_TECNOLOGIAS = [
     "Residual+Diésel D2"
 ]
 
-# --- 3. CLASIFICADOR TERMODINÁMICO MAESTRO (ACTUALIZADO CON EXCEPCIONES) ---
+# --- 3. CLASIFICADOR TERMODINÁMICO MAESTRO ---
 def clasificar_tecnologia_yupana(nombre_central, origen_archivo=""):
     """Clasifica cada central en su respectiva tecnología evaluando su nombre."""
     nombre = str(nombre_central).upper()
     
-    # 1. Biogás + Biomasa + Nafta + Flexigas (Se evalúa primero para capturar "REFTALARA" y "CANA BRAVA")
+    # 1. Biogás + Biomasa + Nafta + Flexigas (Se evalúa primero para capturar "REFTALARA", "CANA BRAVA", "CASAGRANDE")
     biomasa_kws = [
         "PARAMONGA", "JACINTO", "HUAYCOLORO", "GRINGA", "MAPLE", "FLEXIGAS", "NAFTA", 
         "LUREN", "BIOMASA", "BIOGAS", "AGROAURORA", "CAHUAPANAS", "SUPE", "LAREDO", 
-        "PETRAMAS", "DOÑA CATALINA", "DONA CATALINA", "PORTILLO", "CASA GRANDE", 
+        "PETRAMAS", "DOÑA CATALINA", "DONA CATALINA", "PORTILLO", "CASA GRANDE", "CASAGRANDE",
         "CANA BRAVA", "AGROOLMOS", "CALLAO", "REFTALARA"
     ]
     if any(kw in nombre for kw in biomasa_kws):
         return "Biogás+Biomasa+Nafta+Flexigas"
         
-    # 2. Solar (Se evalúa antes que Hidro para atrapar "CSF YARUCAYA")
+    # 2. Solar (Se evalúa antes que Hidro para atrapar "CSF YARUCAYA" y variaciones de "CSSANMARTIN")
     solar_kws = [
         "SOL", "PANAMERICANA", "RUBI", "INTIPAMPA", "CLEMESI", "MATARANI", 
         "REPARTICION", "MAJES", "MISTI", "TACNA", "CS CARHUAQUERO", 
-        "CSCOENERGY", "CSF", "CSSUNNY"
+        "CSCOENERGY", "CSF", "CSSUNNY", "CS SAN MARTIN", "CSSANMARTIN"
     ]
     if any(kw in nombre for kw in solar_kws):
         return "Solar"
@@ -240,7 +240,7 @@ def extraer_datos_dia_memoria(f):
             datos_dia["Log"].append(f"❌ {nombre} (Error de red)")
     return datos_dia
 
-# --- 5. MOTOR GRÁFICO (CERO OCULTO Y ORDEN ESTRICTO) ---
+# --- 5. MOTOR GRÁFICO ---
 def crear_grafica_area_apilada(df_plot, titulo_grafico, aplicar_colores=False, orden_fijo=None):
     df_plot = df_plot.fillna(0)
     num_cols = [c for c in df_plot.columns if c != 'Hora']
@@ -467,7 +467,7 @@ if 'datos_yupana' in st.session_state:
                 st.plotly_chart(crear_grafica_area_apilada(df_plot, titulo), use_container_width=True)
                 st.markdown("---")
 
-    # === DEMANDA Y MATRIZ ENERGÉTICA ===
+    # === DEMANDA Y MATRIZ ENERGÉTICA NORMADA ===
     with t_dem:
         st.markdown(f"### 📈 Demanda Total del Sistema - {fecha_analisis.strftime('%d/%m/%Y')}")
         fig_dem = go.Figure()
@@ -489,7 +489,7 @@ if 'datos_yupana' in st.session_state:
 
         st.markdown("---")
         st.markdown(f"### 📊 Matriz de Generación Acumulada por Tecnología (Línea de Tiempo Efectiva)")
-        st.info("Visualización continua y con **colores normados**. Las franjas marcan el inicio de cada reprograma emitido.")
+        st.info("Visualización continua y con **colores normados**. Las franjas marcan el inicio y vigencia de cada reprograma emitido por el COES.")
         
         active_prog_per_period = [programas_validos[0]] * 48
         
@@ -519,15 +519,7 @@ if 'datos_yupana' in st.session_state:
             dic_t = extraer_todas_centrales(datos_dia_sel[prog].get("TERMICA"))
             dic_r = extraer_todas_centrales(datos_dia_sel[prog].get("RER"))
             
-            cats = {
-                "Gas de Camisea": [0.0]*48,
-                "Gas del Norte+Gas de la Selva": [0.0]*48,
-                "Hidráulica": [0.0]*48,
-                "Eólica": [0.0]*48,
-                "Solar": [0.0]*48,
-                "Biogás+Biomasa+Nafta+Flexigas": [0.0]*48,
-                "Residual+Diésel D2": [0.0]*48
-            }
+            cats = {k: [0.0]*48 for k in COLOR_MAP.keys()}
             
             for k, v in dic_h.items():
                 cat = clasificar_tecnologia_yupana(k, "HIDRO")
@@ -559,7 +551,6 @@ if 'datos_yupana' in st.session_state:
             
             prog_actual = active_prog_per_period[0]
             
-            # Etiqueta garantizada a la izquierda para el inicio del día (00:30)
             fig_stitched.add_annotation(
                 x=horas_str[0], y=1.05, yref="paper", 
                 text=f"<b>Inicia {prog_actual.replace('_', ' ')}</b>",
