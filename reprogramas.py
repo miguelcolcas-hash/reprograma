@@ -7,11 +7,12 @@ import numpy as np
 from datetime import datetime, timedelta, date
 import plotly.express as px
 import plotly.graph_objects as go
+import openpyxl
 
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Supervisión YUPANA - Osinergmin", layout="wide", initial_sidebar_state="expanded")
 st.title("⚡ Dashboard de Supervisión Continua - Programas y Reprogramas")
-st.markdown("Fiscalización Dinámica Multi-Día de Curvas de Carga, Reprogramaciones y Reserva Inactiva")
+st.markdown("Fiscalización Dinámica Multi-Día de Curvas de Carga, Reprogramaciones y Capacidad Inactiva")
 
 # --- 2. PARÁMETROS OPERATIVOS ---
 MES_TXT = [
@@ -75,7 +76,7 @@ def clasificar_tecnologia_yupana(nombre_central, origen_archivo=""):
     hidro_kws = ["HIDRO", "CH ", "C.H.", "MANTARO", "RESTITUCION", "CHAGLLA", "CERRO DEL AGUILA", "MACHUPICCHU", "HUINCO", "CHARCANI", "CAÑON DEL PATO", "SAN GABAN", "CHIMAY", "PLATANAL", "YUNCHAN", "QUISHUAR", "AURA", "ZONGO", "CARPAPATA", "LA JOYA", "STACRUZ", "HUASAHUASI", "RONCADOR", "PURMACANA", "NIMPERIAL", "PIZARRAS", "POECHOS", "CANCHAYLLO", "CHANCAY", "RUCUY", "RUNATULLO", "YANAPAMPA", "POTRERO", "YARUCAYA", "CHANGELI", "8AGOSTO", "RENOVANDESH", "EL CARMEN", "TUPURI", "HUALLIN", "GALLITO", "YAUPI", "MATUCANA", "CALLAHUANCA", "MOYOPAMPA", "HUANZA", "CHEO", "CHURO", "CHHER", "CHZANA", "CURUMUY", "PIAS"]
     if origen_archivo == "HIDRO" or any(kw in nombre for kw in hidro_kws): return "Hidráulica"
         
-    # EXCLUSIÓN DE DUALES/CICLOS COMBINADOS
+    # EXCLUSIÓN ESTRICTA DE CICLOS COMBINADOS Y DUALES PARA PROTEGER LA GRÁFICA DE INACTIVA DIÉSEL
     duales_gas_kws = ["FENIX", "KALLPA", "CHILCA", "VENTANILLA", "LAS FLORES", "SANTO DOMINGO", "MALACAS", "TALLANCA", "AGUAYTIA", "TERMOSELVA"]
     if any(ex in nombre for ex in duales_gas_kws):
         if any(kw in nombre for kw in ["MALACAS", "TALLANCA", "AGUAYTIA", "TERMOSELVA"]):
@@ -161,6 +162,34 @@ def renombrar_con_sufijos(diccionario_series, tipo_origen):
         else: renamed[f"{c_clean} (TER)"] = vals
     return renamed
 
+# EXTRAE EL MOTIVO DINÁMICAMENTE BUSCANDO LA PALABRA "MOTIVO" EN LA COLUMNA C
+def extraer_motivo_dinamico(y, m, M, d, ddmm, l, headers):
+    urls = [
+        f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog%20{ddmm}{l}%2FReprog_{ddmm}{l}.xlsx",
+        f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog%20{ddmm}%20{l}%2FReprog_{ddmm}{l}.xlsx",
+        f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog%20{ddmm}{l}%2F{ddmm}{l}.xlsx"
+    ]
+    for u in urls:
+        try:
+            r = requests.get(u, headers=headers, timeout=10)
+            if r.status_code == 200 and len(r.content) > 1000:
+                wb = openpyxl.load_workbook(io.BytesIO(r.content), data_only=True)
+                ws = wb.worksheets[0]
+                
+                for row in range(1, ws.max_row + 1):
+                    cell_value = ws.cell(row=row, column=3).value
+                    if cell_value and "MOTIVO" in str(cell_value).upper():
+                        motivo_val = ws.cell(row=row+1, column=4).value
+                        if motivo_val:
+                            return str(motivo_val).strip()
+                        else:
+                            return "Motivo encontrado pero vacío en la celda contigua."
+                            
+                return "No se encontró la palabra 'MOTIVO' en la columna C."
+        except:
+            pass
+    return "No se pudo extraer el archivo de origen o hubo un error de lectura."
+
 @st.cache_data(show_spinner=False)
 def extraer_datos_dia_memoria(f):
     y, m, d = f.strftime("%Y"), f.strftime("%m"), f.strftime("%d")
@@ -196,6 +225,12 @@ def extraer_datos_dia_memoria(f):
                         datos_dia["Dataframes"][nombre] = {}
                         for key, stem in archivos_clave.items():
                             datos_dia["Dataframes"][nombre][key] = cargar_df_desde_zip(zf, stem)
+                    
+                    if "RDO" in nombre:
+                        letra = nombre.split("_")[-1]
+                        motivo = extraer_motivo_dinamico(y, m, M, d, ddmm, letra, headers)
+                        datos_dia["Dataframes"][f"MOTIVO_{nombre}"] = motivo
+                        
                     datos_dia["Log"].append(f"✅ {nombre}")
                     exito = True
             except Exception:
@@ -209,8 +244,8 @@ def extraer_datos_dia_memoria(f):
                 
     return datos_dia
 
-# --- 5. MOTOR GRÁFICO MAESTRO MULTIDÍA ---
-def crear_grafica_area_apilada(df_plot, titulo_grafico, marcadores=None, aplicar_colores=False, orden_fijo=None):
+# --- 5. MOTOR GRÁFICO MAESTRO MULTIDÍA (SIN TÍTULOS NATIVOS) ---
+def crear_grafica_area_apilada(df_plot, marcadores=None, aplicar_colores=False, orden_fijo=None):
     df_plot = df_plot.fillna(0)
     num_cols = [c for c in df_plot.columns if c != 'Hora']
     df_plot[num_cols] = df_plot[num_cols].apply(pd.to_numeric, errors='coerce').fillna(0).round(2)
@@ -229,20 +264,18 @@ def crear_grafica_area_apilada(df_plot, titulo_grafico, marcadores=None, aplicar
     cols_mantener = ['Hora', 'TOTAL_SISTEMA'] + orden_columnas
     df_melt = df_plot[cols_mantener].melt(id_vars=['Hora', 'TOTAL_SISTEMA'], var_name='Unidad Generadora', value_name='Potencia_MW')
     
-    # Mantenemos los 0 intactos matemáticamente
+    # Se conserva la base matemática para evitar polígonos rotos
     df_melt['Potencia_Plot'] = df_melt['Potencia_MW']
     
-    # Se elimina el título nativo para evitar solapamientos visuales
     kw_args = {"data_frame": df_melt, "x": "Hora", "y": "Potencia_Plot", "color": "Unidad Generadora", "labels": {"Potencia_Plot": "Potencia Activa (MW)"}}
     if aplicar_colores: kw_args["color_discrete_map"] = COLOR_MAP
     
     fig = px.area(**kw_args)
     fig.update_xaxes(tickformat="%d/%m %H:%M", tickangle=45)
     
-    # Línea TOTAL invisible
     fig.add_scatter(x=df_plot['Hora'], y=df_plot['TOTAL_SISTEMA'], mode='lines', line=dict(width=0, color='rgba(0,0,0,0)'), name='<b>⚡ TOTAL SISTEMA</b>', showlegend=False)
     
-    # ALGORITMO AVANZADO HOVER: Oculta los ceros y añade fecha y hora al total
+    # HOVER INTELIGENTE: Ignora 0 MW y agrega la fecha/hora debajo de la potencia
     for trace in fig.data:
         y_vals = trace.y
         hover_flags = []
@@ -262,7 +295,6 @@ def crear_grafica_area_apilada(df_plot, titulo_grafico, marcadores=None, aplicar
         else:
             trace.hovertemplate = "%{y:,.2f} MW"
     
-    # ETIQUETAS DE REPROGRAMA (ANTI-SUPERPOSICIÓN)
     if marcadores:
         for ts, texto in marcadores:
             fig.add_vline(x=ts, line_width=1.5, line_dash="dash", line_color="rgba(255,255,255,0.7)")
@@ -279,7 +311,7 @@ def crear_grafica_area_apilada(df_plot, titulo_grafico, marcadores=None, aplicar
             
     fig.add_annotation(x=pico_hora, y=pico_mw, text=f"<b>Pico Máximo: {pico_mw:,.2f} MW</b><br>{pico_hora.strftime('%d/%m %H:%M')}", showarrow=True, arrowhead=2, arrowsize=1.5, arrowwidth=2, arrowcolor="#e74c3c", ax=0, ay=-50, font=dict(size=12, color="#c0392b"), bgcolor="rgba(255,255,255,0.8)", bordercolor="#c0392b", borderwidth=1, borderpad=4)
     
-    fig.update_layout(hovermode="x unified", height=650, margin=dict(t=120, b=50, l=60, r=50))
+    fig.update_layout(hovermode="x unified", height=650, margin=dict(t=150, b=50, l=60, r=50))
     return fig
 
 # --- 6. INTERFAZ Y EJECUCIÓN ---
@@ -359,12 +391,12 @@ if 'datos_yupana' in st.session_state:
         dics_cache_dict[f] = dics_cache
         timestamps_globales.extend(ts_dia)
 
-    t_cmg, t_hidro, t_term, t_inactiva, t_dem, t_eol, t_sol = st.tabs([
+    t_cmg, t_hidro, t_term, t_inactiva, t_dem, t_eol, t_sol, t_motivos_rdo = st.tabs([
         "💸 CMG", "💧 Despacho Hidro", "🔥 Despacho Térmico", 
-        "🛑 Inactiva Diésel", "📈 Demanda y Generación", "💨 Eólico", "☀️ Solar"
+        "🛑 Inactiva Diésel", "📈 Demanda y Generación", "💨 Eólico", "☀️ Solar", "📋 Motivos RDO"
     ])
 
-    # === CMG (SIN LÍMITES) ===
+    # === CMG (SIN LÍMITES / RAW DATA) ===
     with t_cmg:
         st.markdown("### 💸 Evolución Continua del CMG")
         dfs_cmg = []
@@ -385,9 +417,7 @@ if 'datos_yupana' in st.session_state:
                         if b_strip in df_c_cols:
                             col_real = df_c_cols[b_strip]
                             v_lst = rellenar_hasta_48(extraer_columna(df_c, col_real))
-                            val = v_lst[i]
-                            # Se extrae la información sin ningún tope, tal cual lo dicta el YUPANA
-                            dia_cmg[b][i] = val if pd.notna(val) else 0.0
+                            dia_cmg[b][i] = v_lst[i]
                             
             df_dia = pd.DataFrame(dia_cmg)
             df_dia.insert(0, 'Hora', ts_dict[f])
@@ -407,11 +437,11 @@ if 'datos_yupana' in st.session_state:
                 align = "left" if ts.hour == 0 and ts.minute == 30 else "center"
                 fig_cmg.add_annotation(x=ts, y=1.02, yref="paper", text=f"<b>{txt_final}</b>", showarrow=False, font=dict(size=10, color="black"), bgcolor="lightgrey", textangle=-90, yanchor="bottom", xanchor=align)
                 
-            fig_cmg.update_layout(hovermode="x unified", height=550, margin=dict(t=120, l=60))
+            fig_cmg.update_layout(hovermode="x unified", height=550, margin=dict(t=150, l=60))
             st.plotly_chart(fig_cmg, use_container_width=True)
 
     # === RUTINA MAESTRA (EXTRAE ESTRICTAMENTE DE MATRIZ ACTIVA: HIDRO, TERMICA, RER) ===
-    def render_tab_generico(tipo_principal, titulo_grafico):
+    def render_tab_generico(tipo_principal):
         dfs_tab = []
         for f in fechas_ordenadas:
             if f not in active_prog_dict: continue
@@ -458,29 +488,29 @@ if 'datos_yupana' in st.session_state:
             lista_filtro = filtro if filtro else todas_centrales
             
             df_plot = df_total[['Hora'] + lista_filtro]
-            st.plotly_chart(crear_grafica_area_apilada(df_plot, titulo_grafico, marcadores=marcadores_globales), use_container_width=True)
+            st.plotly_chart(crear_grafica_area_apilada(df_plot, marcadores=marcadores_globales), use_container_width=True)
 
     with t_hidro:
         st.markdown("### 💧 Despacho Hidroeléctrico Continuo")
-        render_tab_generico("HIDRO", None)
+        render_tab_generico("HIDRO")
 
     with t_term:
         st.markdown("### 🔥 Despacho Térmico Continuo")
-        st.info("Consolida el Despacho Activo Real de unidades Térmicas y Biomasa. Totalmente homologado a la Matriz de Generación Total.")
-        render_tab_generico("TERMICA", None)
+        st.info("Consolida el **Despacho Activo Real** de unidades Térmicas y Biomasa. Totalmente homologado a la Matriz de Generación Total.")
+        render_tab_generico("TERMICA")
 
     with t_eol:
         st.markdown("### 💨 Despacho Eólico Continuo")
-        render_tab_generico("EOLICO", None)
+        render_tab_generico("EOLICO")
 
     with t_sol:
         st.markdown("### ☀️ Despacho Solar Continuo")
-        render_tab_generico("SOLAR", None)
+        render_tab_generico("SOLAR")
 
     # === INACTIVA DIÉSEL CONTINUA ===
     with t_inactiva:
         st.markdown("### 🛑 Capacidad Inactiva Diésel/Residual")
-        st.info("Si una central Diésel NO despachó en todo el día pero sí tuvo Potencia Efectiva declarada, se grafica su reserva inactiva. Los ciclos combinados están excluidos matemáticamente de esta pantalla.")
+        st.info("Si una central opera (despacha > 0 MW), su capacidad inactiva se considera **0 MW** en esa hora específica. Si no opera, se asume su Potencia Efectiva como inactiva/disponible.")
         
         dfs_inactiva = []
         mantenimiento_global = []
@@ -503,24 +533,20 @@ if 'datos_yupana' in st.session_state:
                 desp_day = [0.0]*48
                 for i in range(48):
                     p = active_prog[i]
-                    # Homologado estricto a Matriz Generación: Solo extrae de los archivos reales de energía
-                    for arch in ["HIDRO", "TERMICA", "RER"]:
-                        if c in dics_cache[p][arch]: 
-                            desp_day[i] += rellenar_hasta_48(dics_cache[p][arch][c])[i]
-                            
-                    if c in dics_cache[p]["POT_EFEC"]: 
-                        efec_day[i] += rellenar_hasta_48(dics_cache[p]["POT_EFEC"][c])[i]
+                    if c in dics_cache[p]["TERMICA"]: desp_day[i] += rellenar_hasta_48(dics_cache[p]["TERMICA"][c])[i]
+                    if c in dics_cache[p]["RER"]: desp_day[i] += rellenar_hasta_48(dics_cache[p]["RER"][c])[i]
+                    if c in dics_cache[p]["POT_EFEC"]: efec_day[i] += rellenar_hasta_48(dics_cache[p]["POT_EFEC"][c])[i]
                     
-                sum_desp = sum(desp_day)
                 sum_efec = sum(efec_day)
                 
-                if sum_desp > 0:
-                    pass # Operó en este día, se excluye de este panel por hoy.
-                elif sum_efec == 0:
+                if sum_efec == 0:
                     mantenimiento_global.append({"Fecha": f.strftime('%d/%m/%Y'), "Central": c, "Tecnología": "Residual+Diésel D2", "Estado Operativo": "Mantenimiento / Fuera de Servicio"})
                 else:
-                    inactiva_dia[c] = [max(0.0, round(efec_day[i] - desp_day[i], 2)) for i in range(48)]
-                    
+                    # Reserva Inactiva: Si opera (>0) en la hora, se excluye totalmente de la inactiva en ese intervalo
+                    idle = [0.0 if desp_day[i] > 0 else max(0.0, round(efec_day[i], 2)) for i in range(48)]
+                    if sum(idle) > 0:
+                        inactiva_dia[c] = idle
+                        
             df_dia = pd.DataFrame(inactiva_dia) if inactiva_dia else pd.DataFrame()
             df_dia['Hora'] = ts_dict[f]
             dfs_inactiva.append(df_dia)
@@ -530,8 +556,8 @@ if 'datos_yupana' in st.session_state:
             num_cols = [c for c in df_total_inac.columns if c != 'Hora']
             
             if sum(df_total_inac[num_cols].sum()) > 0:
-                st.markdown("#### 📉 Reserva Diésel Inactiva Detallada")
-                st.plotly_chart(crear_grafica_area_apilada(df_total_inac, None, marcadores=marcadores_globales, aplicar_colores=False), use_container_width=True)
+                st.markdown("#### 📉 Capacidad Inactiva Detallada")
+                st.plotly_chart(crear_grafica_area_apilada(df_total_inac, marcadores=marcadores_globales, aplicar_colores=False), use_container_width=True)
                 
                 st.markdown("#### 📊 Capacidad Inactiva Acumulada Total")
                 df_acum = pd.DataFrame({"Hora": df_total_inac['Hora'], "Total Diésel Inactivo": df_total_inac[num_cols].sum(axis=1)})
@@ -548,16 +574,16 @@ if 'datos_yupana' in st.session_state:
                     align = "left" if ts.hour == 0 and ts.minute == 30 else "center"
                     fig_acum.add_annotation(x=ts, y=1.02, yref="paper", text=f"<b>{txt_final}</b>", showarrow=False, font=dict(size=10, color="white"), bgcolor="#e74c3c", bordercolor="white", borderwidth=1, borderpad=3, textangle=-90, yanchor="bottom", xanchor=align)
 
-                fig_acum.update_layout(hovermode="x unified", height=550, margin=dict(t=120, b=50, l=60, r=50))
+                fig_acum.update_layout(hovermode="x unified", height=550, margin=dict(t=150, b=50, l=60, r=50))
                 st.plotly_chart(fig_acum, use_container_width=True)
             else:
                 st.success("✅ Toda la capacidad Diésel/Residual disponible fue despachada o no hubo potencia inactiva en el periodo.")
                 
         if mantenimiento_global:
-            st.markdown("#### 🛠️ Centrales en Mantenimiento")
+            st.markdown("#### 🛠️ Centrales en Mantenimiento (0 MW Efectivo)")
             st.dataframe(pd.DataFrame(mantenimiento_global), use_container_width=True)
 
-    # === DEMANDA Y MATRIZ ENERGÉTICA (DESPACHO ACTIVO REAL) ===
+    # === DEMANDA Y MATRIZ ENERGÉTICA ===
     with t_dem:
         st.markdown("### 📈 Demanda Total del Sistema")
         dfs_demanda = []
@@ -603,7 +629,7 @@ if 'datos_yupana' in st.session_state:
                 align = "left" if ts.hour == 0 and ts.minute == 30 else "center"
                 fig_dem.add_annotation(x=ts, y=1.02, yref="paper", text=f"<b>{txt_final}</b>", showarrow=False, font=dict(size=10, color="black"), bgcolor="lightgrey", textangle=-90, yanchor="bottom", xanchor=align)
                 
-            fig_dem.update_layout(hovermode="x unified", height=500, margin=dict(t=120, l=60))
+            fig_dem.update_layout(hovermode="x unified", height=500, margin=dict(t=150, l=60))
             st.plotly_chart(fig_dem, use_container_width=True)
 
         st.markdown("---")
@@ -616,7 +642,7 @@ if 'datos_yupana' in st.session_state:
             df_mat_total = df_mat_total.loc[:, (df_mat_total != 0).any(axis=0) | (df_mat_total.columns == 'Hora')]
             
             st.plotly_chart(crear_grafica_area_apilada(
-                df_mat_total, None, 
+                df_mat_total, 
                 marcadores=marcadores_globales, aplicar_colores=True, orden_fijo=ORDEN_TECNOLOGIAS
             ), use_container_width=True)
 
@@ -676,3 +702,27 @@ if 'datos_yupana' in st.session_state:
             file_name=f"Despacho_MultiDia_SEIN_{ini.strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary"
         )
+
+    # === MOTIVOS DE REPROGRAMAS ===
+    with t_motivos_rdo:
+        st.markdown("### 📋 Motivos de Reprogramación Operativa")
+        st.info("Extraído directamente de la columna C del archivo Excel original de cada reprograma subido por el COES.")
+        
+        tabla_motivos = []
+        for f in fechas_ordenadas:
+            if f not in dics_cache_dict: continue
+            progs = active_prog_dict[f]
+            
+            for p in sorted(set(progs)):
+                if "RDO" in p:
+                    motivo_texto = data[f]["Dataframes"].get(f"MOTIVO_{p}", "Motivo no disponible en el sistema.")
+                    tabla_motivos.append({
+                        "Fecha": f.strftime("%d/%m/%Y"),
+                        "Reprograma": p,
+                        "Justificación / Motivo": motivo_texto
+                    })
+                    
+        if tabla_motivos:
+            st.dataframe(pd.DataFrame(tabla_motivos), use_container_width=True)
+        else:
+            st.success("No hay reprogramas en el rango seleccionado, o no se encontró justificación en los archivos de origen.")
