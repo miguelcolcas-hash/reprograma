@@ -31,7 +31,8 @@ archivos_clave = {
     "RER"     : "Rer y No COES - Despacho (MW)",
     "CMG"     : "CMg - Barra ($ por MWh)",
     "RES_FRIA": "Termica - Reserva Fria Gas (MW)",
-    "RES_GAS" : "Termica - Reserva Gas (MW)"
+    "RES_GAS" : "Termica - Reserva Gas (MW)",
+    "DISP_TER": "Termica - Potencia Disponible (MW)" # NUEVO: Para calcular capacidad inactiva y mantenimientos
 }
 
 # --- MAPA CROMÁTICO OSINERGMIN ---
@@ -60,66 +61,27 @@ def clasificar_tecnologia_yupana(nombre_central, origen_archivo=""):
     """Clasifica cada central en su respectiva tecnología evaluando su nombre."""
     nombre = str(nombre_central).upper()
     
-    # 1. Biogás + Biomasa + Nafta + Flexigas (Se evalúa primero para capturar "REFTALARA", "CANA BRAVA", "CASAGRANDE")
-    biomasa_kws = [
-        "PARAMONGA", "JACINTO", "HUAYCOLORO", "GRINGA", "MAPLE", "FLEXIGAS", "NAFTA", 
-        "LUREN", "BIOMASA", "BIOGAS", "AGROAURORA", "CAHUAPANAS", "SUPE", "LAREDO", 
-        "PETRAMAS", "DOÑA CATALINA", "DONA CATALINA", "PORTILLO", "CASA GRANDE", "CASAGRANDE",
-        "CANA BRAVA", "AGROOLMOS", "CALLAO", "REFTALARA"
-    ]
-    if any(kw in nombre for kw in biomasa_kws):
+    if any(kw in nombre for kw in ["PARAMONGA", "JACINTO", "HUAYCOLORO", "GRINGA", "MAPLE", "FLEXIGAS", "NAFTA", "LUREN", "BIOMASA", "BIOGAS", "AGROAURORA", "CAHUAPANAS", "SUPE", "LAREDO", "PETRAMAS", "DOÑA CATALINA", "DONA CATALINA", "PORTILLO", "CASA GRANDE", "CASAGRANDE", "CANA BRAVA", "AGROOLMOS", "CALLAO", "REFTALARA"]):
         return "Biogás+Biomasa+Nafta+Flexigas"
         
-    # 2. Solar (Se evalúa antes que Hidro para atrapar "CSF YARUCAYA" y variaciones de "CSSANMARTIN")
-    solar_kws = [
-        "SOL", "PANAMERICANA", "RUBI", "INTIPAMPA", "CLEMESI", "MATARANI", 
-        "REPARTICION", "MAJES", "MISTI", "TACNA", "CS CARHUAQUERO", 
-        "CSCOENERGY", "CSF", "CSSUNNY", "CS SAN MARTIN", "CSSANMARTIN"
-    ]
-    if any(kw in nombre for kw in solar_kws):
+    if any(kw in nombre for kw in ["SOL", "PANAMERICANA", "RUBI", "INTIPAMPA", "CLEMESI", "MATARANI", "REPARTICION", "MAJES", "MISTI", "TACNA", "CS CARHUAQUERO", "CSCOENERGY", "CSF", "CSSUNNY", "CS SAN MARTIN", "CSSANMARTIN"]):
         return "Solar"
         
-    # 3. Eólica ("PE TALARA" evita colisión con "REFTALARA")
-    eolica_kws = [
-        "EOL", "WAYRA", "LOMITAS", "CUPISNIQUE", "PE TALARA", "MARCONA", 
-        "TRES HERMANAS", "DUNA", "HUAMBOS", "SAN JUAN"
-    ]
-    if any(kw in nombre for kw in eolica_kws):
+    if any(kw in nombre for kw in ["EOL", "WAYRA", "LOMITAS", "CUPISNIQUE", "PE TALARA", "MARCONA", "TRES HERMANAS", "DUNA", "HUAMBOS", "SAN JUAN"]):
         return "Eólica"
         
-    # 4. Hidráulica
-    hidro_kws = [
-        "HIDRO", "CH ", "C.H.", "MANTARO", "RESTITUCION", "CHAGLLA", "CERRO DEL AGUILA", 
-        "MACHUPICCHU", "HUINCO", "CHARCANI", "CAÑON DEL PATO", "SAN GABAN", "CHIMAY", 
-        "PLATANAL", "YUNCHAN", "QUISHUAR", "AURA", "ZONGO", "CARPAPATA", "LA JOYA", 
-        "STACRUZ", "HUASAHUASI", "RONCADOR", "PURMACANA", "NIMPERIAL", "PIZARRAS", 
-        "POECHOS", "CANCHAYLLO", "CHANCAY", "RUCUY", "RUNATULLO", "YANAPAMPA", "POTRERO", 
-        "YARUCAYA", "CHANGELI", "8AGOSTO", "RENOVANDESH", "EL CARMEN", "TUPURI", "HUALLIN", 
-        "GALLITO", "YAUPI", "MATUCANA", "CALLAHUANCA", "MOYOPAMPA", "HUANZA", "CHEO", 
-        "CHURO", "CHHER", "CHZANA", "CURUMUY", "PIAS"
-    ]
+    hidro_kws = ["HIDRO", "CH ", "C.H.", "MANTARO", "RESTITUCION", "CHAGLLA", "CERRO DEL AGUILA", "MACHUPICCHU", "HUINCO", "CHARCANI", "CAÑON DEL PATO", "SAN GABAN", "CHIMAY", "PLATANAL", "YUNCHAN", "QUISHUAR", "AURA", "ZONGO", "CARPAPATA", "LA JOYA", "STACRUZ", "HUASAHUASI", "RONCADOR", "PURMACANA", "NIMPERIAL", "PIZARRAS", "POECHOS", "CANCHAYLLO", "CHANCAY", "RUCUY", "RUNATULLO", "YANAPAMPA", "POTRERO", "YARUCAYA", "CHANGELI", "8AGOSTO", "RENOVANDESH", "EL CARMEN", "TUPURI", "HUALLIN", "GALLITO", "YAUPI", "MATUCANA", "CALLAHUANCA", "MOYOPAMPA", "HUANZA", "CHEO", "CHURO", "CHHER", "CHZANA", "CURUMUY", "PIAS"]
     if origen_archivo == "HIDRO" or any(kw in nombre for kw in hidro_kws):
         return "Hidráulica"
         
-    # 5. Residual + Diésel D2
-    diesel_kws = [
-        "D2", "R6", "RESIDUAL", "DIESEL", "ILO21", "ILO 21", "ILO1", "ILO 1", "MOLLENDO", 
-        "RECKA", "INDEPENDENCIA", "SAMANCO", "TARAPOTO", "IQUITOS", "YURIMAGUAS", 
-        "PUERTO MALDONADO", "BELLAVISTA", "PEDRO RUIZ", "ETEN", "PIURA D", "CALANA", 
-        "ELOR", "SHCUMMINS", "SNTV"
-    ]
+    diesel_kws = ["D2", "R6", "RESIDUAL", "DIESEL", "ILO21", "ILO 21", "ILO1", "ILO 1", "MOLLENDO", "RECKA", "INDEPENDENCIA", "SAMANCO", "TARAPOTO", "IQUITOS", "YURIMAGUAS", "PUERTO MALDONADO", "BELLAVISTA", "PEDRO RUIZ", "ETEN", "PIURA D", "CALANA", "ELOR", "SHCUMMINS", "SNTV"]
     if any(kw in nombre for kw in diesel_kws):
         return "Residual+Diésel D2"
         
-    # 6. Gas del Norte + Gas de la Selva
-    gas_norte_kws = [
-        "AGUAYTIA", "TERMOSELVA", "PUCALLPA", "MALACAS", "ZORRITOS", "PARIÑAS", "EEEP", 
-        "ENEL PIURA", "PIURA G", "NUEVA ZORRITOS", "AGE", "TALLANCA", "MAL2", "TABLAZO"
-    ]
+    gas_norte_kws = ["AGUAYTIA", "TERMOSELVA", "PUCALLPA", "MALACAS", "ZORRITOS", "PARIÑAS", "EEEP", "ENEL PIURA", "PIURA G", "NUEVA ZORRITOS", "AGE", "TALLANCA", "MAL2", "TABLAZO"]
     if any(kw in nombre for kw in gas_norte_kws):
         return "Gas del Norte+Gas de la Selva"
         
-    # 7. Default: Gas de Camisea (Térmicas base no capturadas antes: Kallpa, Chilca, Fenix, etc.)
     return "Gas de Camisea"
 
 # --- 4. INGESTA Y ETL ---
@@ -332,9 +294,9 @@ if 'datos_yupana' in st.session_state:
     datos_dia_sel = data[fecha_analisis]["Dataframes"]
     programas_validos = [p for p in ["PDO"] + [f"RDO_{l}" for l in rdo_letras] if p in datos_dia_sel]
     
-    t_cmg, t_hidro, t_term, t_res_fria, t_res_gas, t_dem, t_eol, t_sol, t_motivos = st.tabs([
-        "💸 CMG", "💧 Despacho Hidro", "🔥 Despacho Térmico", "🧊 Reserva Fría Gas", "⛽ Reserva Gas", 
-        "📈 Demanda y Generación", "💨 Despacho Eólico", "☀️ Despacho Solar", "📋 Intervenciones"
+    t_cmg, t_hidro, t_term, t_res_fria, t_res_gas, t_inactiva, t_dem, t_eol, t_sol, t_motivos = st.tabs([
+        "💸 CMG", "💧 Despacho Hidro", "🔥 Despacho Térmico", "🧊 Res. Fría Gas", "⛽ Res. Gas", 
+        "🛑 Inactiva Diésel", "📈 Demanda y Generación", "💨 Eólico", "☀️ Solar", "📋 Intervenciones"
     ])
 
     # === CMG ===
@@ -466,6 +428,63 @@ if 'datos_yupana' in st.session_state:
                 titulo = "Programa Diario de Operación (PDO)" if prog == "PDO" else f"Reprograma ({prog.replace('_', ' ')})"
                 st.plotly_chart(crear_grafica_area_apilada(df_plot, titulo), use_container_width=True)
                 st.markdown("---")
+
+    # === INACTIVA DIÉSEL (NUEVA PESTAÑA) ===
+    with t_inactiva:
+        st.markdown(f"### 🛑 Capacidad Inactiva Diésel/Residual - {fecha_analisis.strftime('%d/%m/%Y')}")
+        st.info("Calcula la potencia de reserva rodante/ociosa (Potencia Disponible - Despachado). Excluye automáticamente unidades con 0 MW de disponibilidad (Mantenimiento/Fuera de Servicio).")
+        
+        col_inac, _ = st.columns([1, 2])
+        with col_inac:
+            prog_sel_inac = st.selectbox("⚡ **Seleccione el Programa a Evaluar:**", programas_validos, key="sel_inactiva")
+            
+        dic_t = extraer_todas_centrales(datos_dia_sel[prog_sel_inac].get("TERMICA"))
+        dic_disp = extraer_todas_centrales(datos_dia_sel[prog_sel_inac].get("DISP_TER"))
+        
+        if not dic_disp:
+            st.warning(f"El COES no publicó el archivo 'Termica - Potencia Disponible (MW)' para el programa {prog_sel_inac}.")
+        else:
+            # Unión de llaves para no perder ninguna central
+            keys_union = set(dic_disp.keys()).union(set(dic_t.keys()))
+            diesel_plants = [c for c in keys_union if clasificar_tecnologia_yupana(c, "TERMICA") == "Residual+Diésel D2"]
+            
+            en_mantenimiento = []
+            inactivas_detalle = {}
+            tot_inactiva = [0.0]*48
+            
+            for c in diesel_plants:
+                disp = rellenar_hasta_48(dic_disp.get(c, []))
+                desp = rellenar_hasta_48(dic_t.get(c, []))
+                
+                # Si la Potencia Disponible es 0 en todo el día, está en Mantenimiento/Indisponible
+                if sum(disp) == 0:
+                    en_mantenimiento.append({"Central": c, "Tecnología": "Residual+Diésel D2", "Estado Operativo": "Fuera de Servicio (0 MW Disponible)"})
+                else:
+                    # Reserva inactiva = Disponible - Despachado
+                    idle = [max(0.0, disp[i] - desp[i]) for i in range(48)]
+                    if sum(idle) > 0:
+                        inactivas_detalle[f"{c}"] = idle
+                        tot_inactiva = suma_elementos(tot_inactiva, idle)
+                        
+            if en_mantenimiento:
+                st.markdown("#### 🛠️ Centrales Fuera de Servicio (Excluidas del Conteo de Inactividad)")
+                st.dataframe(pd.DataFrame(en_mantenimiento), use_container_width=True)
+                
+            if inactivas_detalle:
+                st.markdown("#### 📉 Capacidad Inactiva Detallada por Central (MW)")
+                df_det = pd.DataFrame(inactivas_detalle)
+                df_det.insert(0, 'Hora', horas_str)
+                fig_det = crear_grafica_area_apilada(df_det, f"Reserva Diésel Inactiva Detallada - {prog_sel_inac}", aplicar_colores=False)
+                st.plotly_chart(fig_det, use_container_width=True)
+                
+                st.markdown("#### 📊 Capacidad Inactiva Acumulada Total (MW)")
+                df_acum = pd.DataFrame({"Total Diésel Inactivo": tot_inactiva})
+                df_acum.insert(0, 'Hora', horas_str)
+                fig_acum = px.area(df_acum, x="Hora", y="Total Diésel Inactivo", title=f"Suma Total de Reserva Diésel Ociosa - {prog_sel_inac}", color_discrete_sequence=["#FF0000"])
+                fig_acum.update_layout(hovermode="x unified", height=500)
+                st.plotly_chart(fig_acum, use_container_width=True)
+            else:
+                st.success("Toda la capacidad Diésel/Residual disponible fue despachada o todas las centrales estuvieron en mantenimiento.")
 
     # === DEMANDA Y MATRIZ ENERGÉTICA NORMADA ===
     with t_dem:
