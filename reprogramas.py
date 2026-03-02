@@ -76,16 +76,17 @@ def clasificar_tecnologia_yupana(nombre_central, origen_archivo=""):
     hidro_kws = ["HIDRO", "CH ", "C.H.", "MANTARO", "RESTITUCION", "CHAGLLA", "CERRO DEL AGUILA", "MACHUPICCHU", "HUINCO", "CHARCANI", "CAÑON DEL PATO", "SAN GABAN", "CHIMAY", "PLATANAL", "YUNCHAN", "QUISHUAR", "AURA", "ZONGO", "CARPAPATA", "LA JOYA", "STACRUZ", "HUASAHUASI", "RONCADOR", "PURMACANA", "NIMPERIAL", "PIZARRAS", "POECHOS", "CANCHAYLLO", "CHANCAY", "RUCUY", "RUNATULLO", "YANAPAMPA", "POTRERO", "YARUCAYA", "CHANGELI", "8AGOSTO", "RENOVANDESH", "EL CARMEN", "TUPURI", "HUALLIN", "GALLITO", "YAUPI", "MATUCANA", "CALLAHUANCA", "MOYOPAMPA", "HUANZA", "CHEO", "CHURO", "CHHER", "CHZANA", "CURUMUY", "PIAS"]
     if origen_archivo == "HIDRO" or any(kw in nombre for kw in hidro_kws): return "Hidráulica"
         
-    # EXCLUSIÓN ESTRICTA DE CICLOS COMBINADOS Y DUALES PARA PROTEGER LA GRÁFICA DE INACTIVA DIÉSEL
+    # 1ro: EVALUAR SI ES DIÉSEL EXPLICITAMENTE (Atrapa casos como "FENIX CCOMB GT12 D2")
+    diesel_kws = ["D2", "R6", "RESIDUAL", "DIESEL", "ILO21", "ILO 21", "ILO1", "ILO 1", "MOLLENDO", "RECKA", "INDEPENDENCIA", "SAMANCO", "TARAPOTO", "IQUITOS", "YURIMAGUAS", "PUERTO MALDONADO", "BELLAVISTA", "PEDRO RUIZ", "ETEN", "PIURA D", "CALANA", "ELOR", "SHCUMMINS", "SNTV", "NEPI", "PUERTO BRAVO", "NODO"]
+    if any(kw in nombre for kw in diesel_kws): return "Residual+Diésel D2"
+
+    # 2do: FILTRO DE CICLOS COMBINADOS Y DUALES (Si llegó aquí, es porque NO tiene sufijo D2/Residual explícito, por tanto es Gas)
     duales_gas_kws = ["FENIX", "KALLPA", "CHILCA", "VENTANILLA", "LAS FLORES", "SANTO DOMINGO", "MALACAS", "TALLANCA", "AGUAYTIA", "TERMOSELVA"]
     if any(ex in nombre for ex in duales_gas_kws):
         if any(kw in nombre for kw in ["MALACAS", "TALLANCA", "AGUAYTIA", "TERMOSELVA"]):
             return "Gas del Norte+Gas de la Selva"
         return "Gas de Camisea"
             
-    diesel_kws = ["D2", "R6", "RESIDUAL", "DIESEL", "ILO21", "ILO 21", "ILO1", "ILO 1", "MOLLENDO", "RECKA", "INDEPENDENCIA", "SAMANCO", "TARAPOTO", "IQUITOS", "YURIMAGUAS", "PUERTO MALDONADO", "BELLAVISTA", "PEDRO RUIZ", "ETEN", "PIURA D", "CALANA", "ELOR", "SHCUMMINS", "SNTV", "NEPI", "PUERTO BRAVO", "NODO"]
-    if any(kw in nombre for kw in diesel_kws): return "Residual+Diésel D2"
-        
     gas_norte_kws = ["AGUAYTIA", "TERMOSELVA", "PUCALLPA", "MALACAS", "ZORRITOS", "PARIÑAS", "EEEP", "ENEL PIURA", "PIURA G", "NUEVA ZORRITOS", "AGE", "TALLANCA", "MAL2", "TABLAZO"]
     if any(kw in nombre for kw in gas_norte_kws): return "Gas del Norte+Gas de la Selva"
         
@@ -340,7 +341,7 @@ if st.sidebar.button("Construir Matriz de Operación Continua", type="primary"):
         status.success("✅ Motor Dimensional Compilado con Éxito.")
         prog_bar.empty()
 
-# --- 7. VISUALIZACIÓN DINÁMICA MULTIDÍA (ALGORITMO ESTRICTO MATRIZ TOTAL) ---
+# --- 7. VISUALIZACIÓN DINÁMICA MULTIDÍA ---
 if 'datos_yupana' in st.session_state:
     data = st.session_state['datos_yupana']
     fechas_ordenadas = sorted(data.keys())
@@ -507,10 +508,10 @@ if 'datos_yupana' in st.session_state:
         st.markdown("### ☀️ Despacho Solar Continuo")
         render_tab_generico("SOLAR")
 
-    # === INACTIVA DIÉSEL CONTINUA ===
+    # === INACTIVA DIÉSEL CONTINUA (CÁLCULO POR INTERVALO) ===
     with t_inactiva:
         st.markdown("### 🛑 Capacidad Inactiva Diésel/Residual")
-        st.info("Si una central opera (despacha > 0 MW), su capacidad inactiva se considera **0 MW** en esa hora específica. Si no opera, se asume su Potencia Efectiva como inactiva/disponible.")
+        st.info("Mapea la capacidad disponible no despachada en cada intervalo de media hora. Si la central enciende en un intervalo, su gráfica cae a 0 MW en esa hora. Ciclos combinados están excluidos.")
         
         dfs_inactiva = []
         mantenimiento_global = []
@@ -583,7 +584,7 @@ if 'datos_yupana' in st.session_state:
             st.markdown("#### 🛠️ Centrales en Mantenimiento (0 MW Efectivo)")
             st.dataframe(pd.DataFrame(mantenimiento_global), use_container_width=True)
 
-    # === DEMANDA Y MATRIZ ENERGÉTICA ===
+    # === DEMANDA Y MATRIZ ENERGÉTICA (DESPACHO ACTIVO REAL) ===
     with t_dem:
         st.markdown("### 📈 Demanda Total del Sistema")
         dfs_demanda = []
