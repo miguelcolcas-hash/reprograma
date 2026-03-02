@@ -19,9 +19,7 @@ MES_TXT = [
     "JULIO","AGOSTO","SETIEMBRE","OCTUBRE","NOVIEMBRE","DICIEMBRE"
 ]
 barras = ["SANTA ROSA 220 A", "MOQUEGUA 220", "ZORRITOS 220"]
-
-# AMPLIACIÓN DE REPROGRAMAS: Busca automáticamente hasta 10 reprogramas (A hasta J)
-rdo_letras = list("ABCDEFGHIJ")
+rdo_letras = list("ABCDEFGHIJ") # Hasta 10 reprogramas automáticos
 
 inicio_hora = datetime(2000, 1, 1, 0, 30)
 horas_str = [(inicio_hora + timedelta(minutes=30*i)).strftime("%H:%M") for i in range(48)]
@@ -55,7 +53,7 @@ archivos_clave = {
     "RES_GAS" : "Termica - Reserva Gas (MW)"
 }
 
-# --- 3. ETL ORIGINAL RECUPERADO ---
+# --- 3. ETL A PRUEBA DE ERRORES DIMENSIONALES Y BASURA TEXTUAL ---
 def cargar_df_desde_zip(zf, stem):
     for info in zf.infolist():
         nombre_base = info.filename.split('/')[-1]
@@ -69,7 +67,8 @@ def extraer_columna(df, col):
     return df[col].tolist() if df is not None and col in df.columns else None
 
 def rellenar_hasta_48(lst):
-    if not lst: return None
+    """Garantiza la dimensionalidad exacta de 48 periodos."""
+    if not lst: return [0]*48
     faltan = 48 - len(lst)
     return ([0]*faltan + lst) if faltan > 0 else lst[:48]
 
@@ -81,45 +80,32 @@ def suma_elementos(*listas):
                 if pd.notna(v): out[i] += v
     return out
 
-def totales_hidro(df):
-    if df is None or df.empty: return None
-    if df.shape[1] > 1: return df.iloc[:,1:].sum(axis=1, numeric_only=True).tolist()
-    tot=[]
-    for celda in df.iloc[:,0].astype(str):
-        nums=[float(x) for x in celda.split(",")[1:] if x.strip()]
-        tot.append(sum(nums))
-    return tot
-
-def totales_rer(df, nombres):
-    if df is None or df.empty: return None
-    if df.shape[1] > 1:
-        cols=[c for c in df.columns if str(c).strip().upper() in nombres]
-        return df[cols].sum(axis=1, numeric_only=True).tolist() if cols else None
-    enc=[h.strip().upper() for h in str(df.iloc[0,0]).split(",")]
-    idx=[i for i,h in enumerate(enc) if h in nombres]
-    if not idx: return None
-    tot=[]
-    for fila in df.iloc[1:,0].astype(str):
-        partes=[p.strip() for p in fila.split(",")]
-        nums=[float(partes[i]) if i<len(partes) and partes[i] else 0 for i in idx]
-        tot.append(sum(nums))
-    return tot
-
 def fila_sin_primer_valor(df):
     if df is None or df.empty: return None
-    if df.shape[1] > 1: return df.iloc[:,1:].sum(axis=1, numeric_only=True).tolist()
+    if df.shape[1] > 1: 
+        cols = [c for c in df.columns if "ETAPA" not in str(c).upper() and "GENERADOR" not in str(c).upper() and str(c).upper() not in ["HORA", "TIEMPO", "FECHA"] and not str(c).startswith("Unnamed")]
+        return df[cols].sum(axis=1, numeric_only=True).tolist()
+        
+    enc = [h.strip().upper() for h in str(df.iloc[0,0]).split(",")]
+    idx_to_sum = [i for i, h in enumerate(enc) if i > 0 and "ETAPA" not in h and "GENERADOR" not in h]
+    if not idx_to_sum: return None
+    
     tot=[]
-    for celda in df.iloc[:,0].astype(str):
-        nums=[float(x) for x in celda.split(",")[1:] if x.strip()]
+    for fila in df.iloc[1:,0].astype(str):
+        partes = [p.strip() for p in fila.split(",")]
+        nums = [float(partes[i]) for i in idx_to_sum if i < len(partes) and partes[i]]
         tot.append(sum(nums))
     return tot
 
 def extraer_todas_centrales(df):
-    """Lógica original de extracción iterativa de columnas/filas."""
+    """Extrae columnas filtrando cabeceras basura (Etapa/Generador)."""
     series = {}
     if df is None or df.empty: return series
     if df.shape[1] > 1:
-        cols = [c for c in df.columns if str(c).upper() not in ["HORA", "TIEMPO", "FECHA"] and not str(c).startswith("Unnamed")]
+        cols = [c for c in df.columns if str(c).upper() not in ["HORA", "TIEMPO", "FECHA"] 
+                and not str(c).startswith("Unnamed")
+                and "ETAPA" not in str(c).upper()
+                and "GENERADOR" not in str(c).upper()]
         for c in cols:
             series[c] = df[c].tolist()
     else:
@@ -128,11 +114,17 @@ def extraer_todas_centrales(df):
         if len(enc) < 2:
             enc = [h.strip() for h in str(df.iloc[0,0]).split(",")]
             start_idx = 1
-        for nombre in enc[1:]:
-            series[nombre] = []
+            
+        nombres_validos, idx_validos = [], []
+        for i, nombre in enumerate(enc[1:], start=1):
+            if "ETAPA" not in nombre.upper() and "GENERADOR" not in nombre.upper():
+                nombres_validos.append(nombre)
+                idx_validos.append(i)
+                series[nombre] = []
+                
         for fila in df.iloc[start_idx:, 0].astype(str):
             partes = [p.strip() for p in fila.split(",")]
-            for i, nombre in enumerate(enc[1:], start=1):
+            for nombre, i in zip(nombres_validos, idx_validos):
                 if i < len(partes) and partes[i]:
                     series[nombre].append(float(partes[i]))
                 else:
@@ -140,7 +132,6 @@ def extraer_todas_centrales(df):
     return series
 
 def renombrar_con_sufijos(diccionario_series, tipo):
-    """Inyecta los sufijos UI al diccionario resultante de la extracción original."""
     renamed = {}
     for c, vals in diccionario_series.items():
         c_clean = str(c).replace("(EOL)", "").replace("(SOL)", "").replace("(HID)", "").replace("(TER)", "").strip()
@@ -183,14 +174,13 @@ def extraer_datos_dia_memoria(f):
                             datos_dia["Dataframes"][nombre][key] = cargar_df_desde_zip(zf, stem)
                 datos_dia["Log"].append(f"✅ {nombre}")
             else:
-                datos_dia["Log"].append(f"❌ {nombre} (No publicado por el COES)")
+                datos_dia["Log"].append(f"❌ {nombre} (No publicado)")
         except Exception:
             datos_dia["Log"].append(f"❌ {nombre} (Error de red)")
     return datos_dia
 
-# --- 4. MOTOR GRÁFICO (REINDEXADO ESTABLE DE HORAS) ---
+# --- 4. MOTOR GRÁFICO ---
 def crear_grafica_area_apilada(df_plot, titulo_grafico):
-    """Genera área apilada con Total Sistema en Hover y omisión de valores en 0."""
     df_plot = df_plot.fillna(0)
     
     df_plot['TOTAL_SISTEMA'] = df_plot.drop(columns=['Hora']).sum(axis=1)
@@ -211,8 +201,6 @@ def crear_grafica_area_apilada(df_plot, titulo_grafico):
         title=titulo_grafico, labels={"Potencia_Plot": "Potencia Activa (MW)"}
     )
     fig.update_traces(hovertemplate="%{y:,.2f} MW")
-    
-    # Asegura orden estricto de horas en Plotly
     fig.update_xaxes(categoryorder='array', categoryarray=horas_str)
     
     fig.add_scatter(
@@ -233,7 +221,8 @@ def crear_grafica_area_apilada(df_plot, titulo_grafico):
 
 # --- 5. INTERFAZ Y EJECUCIÓN ---
 st.sidebar.header("Parámetros de Fiscalización")
-rango_fechas = st.sidebar.date_input("Intervalo de Fechas (YUPANA)", value=(datetime(2025, 7, 6), datetime(2025, 7, 8)))
+# FECHA ACTUAL POR DEFECTO
+rango_fechas = st.sidebar.date_input("Intervalo de Fechas (YUPANA)", value=(date.today(), date.today()))
 
 if st.sidebar.button("Extraer Curvas y Motivos", type="primary"):
     if isinstance(rango_fechas, tuple) and len(rango_fechas) == 2:
@@ -241,7 +230,6 @@ if st.sidebar.button("Extraer Curvas y Motivos", type="primary"):
         st.session_state['fecha_ini'], st.session_state['fecha_fin'] = ini, fin
         
         status, prog_bar = st.empty(), st.progress(0)
-        # Bitácora retraída por defecto
         log_exp = st.expander("Ver bitácora de extracción del COES", expanded=False)
         
         datos_completos = {}
@@ -277,7 +265,7 @@ if 'datos_yupana' in st.session_state:
     
     t_cmg, t_hidro, t_term, t_res_fria, t_res_gas, t_dem, t_eol, t_sol, t_motivos = st.tabs([
         "💸 CMG", "💧 Despacho Hidro", "🔥 Despacho Térmico", "🧊 Reserva Fría Gas", "⛽ Reserva Gas", 
-        "📈 Demanda Sistema", "💨 Despacho Eólico", "☀️ Despacho Solar", "📋 Intervenciones"
+        "📈 Demanda y Generación", "💨 Despacho Eólico", "☀️ Despacho Solar", "📋 Intervenciones"
     ])
 
     # === CMG ===
@@ -307,7 +295,6 @@ if 'datos_yupana' in st.session_state:
             dic_h = renombrar_con_sufijos(extraer_todas_centrales(datos_dia_sel[prog].get("HIDRO")), "HIDRO")
             dic_r = renombrar_con_sufijos(extraer_todas_centrales(datos_dia_sel[prog].get("RER")), "RER")
             dic_h.update({k: v for k, v in dic_r.items() if "(HID)" in k})
-            
             activas_prog = {k: rellenar_hasta_48(v) for k, v in dic_h.items() if sum([x for x in v if pd.notna(x)]) > 0}
             todas_hidro.update(activas_prog.keys())
             dict_por_prog[prog] = activas_prog
@@ -316,10 +303,11 @@ if 'datos_yupana' in st.session_state:
         with hc1: st.selectbox("🏢 Empresa:", ["Todas"], disabled=True, key='h_emp')
         with hc2: st.selectbox("🏭 Tipo Generación:", ["Hidráulica (HID)"], disabled=True, key='h_tip')
         with hc3: st.selectbox("🌍 Zona:", ["Todas"], disabled=True, key='h_zon')
-        with hc4: filtro_hidro = st.multiselect("⚡ Centrales:", options=sorted(list(todas_hidro)), default=sorted(list(todas_hidro)), placeholder="Buscar o seleccionar...", key='h_cen')
+        with hc4: filtro_hidro = st.multiselect("⚡ Centrales:", options=sorted(list(todas_hidro)), default=[], placeholder="Todas (vacío) o buscar...", key='h_cen')
         
         for prog in programas_validos:
-            datos_filtrados = {k: v for k, v in dict_por_prog[prog].items() if k in filtro_hidro}
+            lista_filtro_h = filtro_hidro if filtro_hidro else todas_hidro
+            datos_filtrados = {k: v for k, v in dict_por_prog[prog].items() if k in lista_filtro_h}
             if datos_filtrados:
                 df_plot = pd.DataFrame(datos_filtrados)
                 df_plot.insert(0, 'Hora', horas_str)
@@ -342,10 +330,11 @@ if 'datos_yupana' in st.session_state:
         with tc1: st.selectbox("🏢 Empresa:", ["Todas"], disabled=True, key='t_emp')
         with tc2: st.selectbox("🏭 Tipo Generación:", ["Térmica (TER)"], disabled=True, key='t_tip')
         with tc3: st.selectbox("🌍 Zona:", ["Todas"], disabled=True, key='t_zon')
-        with tc4: filtro_term = st.multiselect("⚡ Centrales:", options=sorted(list(todas_term)), default=sorted(list(todas_term)), placeholder="Buscar o seleccionar...", key='t_cen')
+        with tc4: filtro_term = st.multiselect("⚡ Centrales:", options=sorted(list(todas_term)), default=[], placeholder="Todas (vacío) o buscar...", key='t_cen')
         
         for prog in programas_validos:
-            datos_filtrados = {k: v for k, v in dict_por_prog[prog].items() if k in filtro_term}
+            lista_filtro_t = filtro_term if filtro_term else todas_term
+            datos_filtrados = {k: v for k, v in dict_por_prog[prog].items() if k in lista_filtro_t}
             if datos_filtrados:
                 df_plot = pd.DataFrame(datos_filtrados)
                 df_plot.insert(0, 'Hora', horas_str)
@@ -368,10 +357,11 @@ if 'datos_yupana' in st.session_state:
         with fc1: st.selectbox("🏢 Empresa:", ["Todas"], disabled=True, key='rf_emp')
         with fc2: st.selectbox("🏭 Tipo Generación:", ["Reserva Fría (TER)"], disabled=True, key='rf_tip')
         with fc3: st.selectbox("🌍 Zona:", ["Todas"], disabled=True, key='rf_zon')
-        with fc4: filtro_fria = st.multiselect("⚡ Centrales:", options=sorted(list(todas_fria)), default=sorted(list(todas_fria)), placeholder="Buscar o seleccionar...", key='rf_cen')
+        with fc4: filtro_fria = st.multiselect("⚡ Centrales:", options=sorted(list(todas_fria)), default=[], placeholder="Todas (vacío) o buscar...", key='rf_cen')
         
         for prog in programas_validos:
-            datos_filtrados = {k: v for k, v in dict_por_prog[prog].items() if k in filtro_fria}
+            lista_filtro_f = filtro_fria if filtro_fria else todas_fria
+            datos_filtrados = {k: v for k, v in dict_por_prog[prog].items() if k in lista_filtro_f}
             if datos_filtrados:
                 df_plot = pd.DataFrame(datos_filtrados)
                 df_plot.insert(0, 'Hora', horas_str)
@@ -394,10 +384,11 @@ if 'datos_yupana' in st.session_state:
         with gc1: st.selectbox("🏢 Empresa:", ["Todas"], disabled=True, key='rg_emp')
         with gc2: st.selectbox("🏭 Tipo Generación:", ["Reserva Gas (TER)"], disabled=True, key='rg_tip')
         with gc3: st.selectbox("🌍 Zona:", ["Todas"], disabled=True, key='rg_zon')
-        with gc4: filtro_gas = st.multiselect("⚡ Centrales:", options=sorted(list(todas_gas)), default=sorted(list(todas_gas)), placeholder="Buscar o seleccionar...", key='rg_cen')
+        with gc4: filtro_gas = st.multiselect("⚡ Centrales:", options=sorted(list(todas_gas)), default=[], placeholder="Todas (vacío) o buscar...", key='rg_cen')
         
         for prog in programas_validos:
-            datos_filtrados = {k: v for k, v in dict_por_prog[prog].items() if k in filtro_gas}
+            lista_filtro_g = filtro_gas if filtro_gas else todas_gas
+            datos_filtrados = {k: v for k, v in dict_por_prog[prog].items() if k in lista_filtro_g}
             if datos_filtrados:
                 df_plot = pd.DataFrame(datos_filtrados)
                 df_plot.insert(0, 'Hora', horas_str)
@@ -405,9 +396,9 @@ if 'datos_yupana' in st.session_state:
                 st.plotly_chart(crear_grafica_area_apilada(df_plot, titulo), use_container_width=True)
                 st.markdown("---")
 
-    # === DEMANDA ===
+    # === DEMANDA Y MATRIZ ENERGÉTICA (EMPALME CRONOLÓGICO CONTINUO) ===
     with t_dem:
-        st.markdown(f"### 📈 Demanda Sistema - {fecha_analisis.strftime('%d/%m/%Y')}")
+        st.markdown(f"### 📈 Demanda Total del Sistema - {fecha_analisis.strftime('%d/%m/%Y')}")
         fig_dem = go.Figure()
         for prog in programas_validos:
             vh = rellenar_hasta_48(fila_sin_primer_valor(datos_dia_sel[prog].get("HIDRO")))
@@ -417,8 +408,79 @@ if 'datos_yupana' in st.session_state:
             if sum(demanda_total) > 0:
                 fig_dem.add_trace(go.Scatter(x=horas_str, y=demanda_total, mode='lines+markers', name=prog.replace('_', ' ')))
         fig_dem.update_xaxes(categoryorder='array', categoryarray=horas_str)
-        fig_dem.update_layout(title="Curva de Carga Total", hovermode="x unified", yaxis_title="MW")
+        fig_dem.update_layout(title="Curvas de Demanda (Comparativa)", hovermode="x unified", yaxis_title="MW", height=450)
         st.plotly_chart(fig_dem, use_container_width=True)
+
+        st.markdown("---")
+        st.markdown(f"### 📊 Matriz de Generación Acumulada por Tecnología (Empalme Continuo)")
+        st.info("Esta gráfica es interactiva y continua: Inicia con el Programa Diario (PDO) y se empalma automáticamente de forma cronológica con cada reprograma (RDO) en cuanto entra en vigencia en la red.")
+        
+        # 1. Identificar qué programa manda en cada periodo de 30 minutos (Stitching/Empalme)
+        active_prog_per_period = [programas_validos[0]] * 48
+        
+        for prog in programas_validos[1:]:
+            vh = rellenar_hasta_48(fila_sin_primer_valor(datos_dia_sel[prog].get("HIDRO")))
+            vt = rellenar_hasta_48(fila_sin_primer_valor(datos_dia_sel[prog].get("TERMICA")))
+            vr = rellenar_hasta_48(fila_sin_primer_valor(datos_dia_sel[prog].get("RER")))
+            demanda_total = suma_elementos(vh, vt, vr)
+            
+            # Buscamos en qué hora operativa empieza a regir este reprograma (>100 MW para ignorar ruido)
+            start_idx = -1
+            for i, val in enumerate(demanda_total):
+                if val > 100: 
+                    start_idx = i
+                    break
+                    
+            if start_idx != -1:
+                # A partir de la hora que inicia, este programa manda
+                for i in range(start_idx, 48):
+                    active_prog_per_period[i] = prog
+                    
+        # 2. Pre-calcular las sumas tecnológicas para todos los programas
+        tech_by_prog = {}
+        for prog in programas_validos:
+            dic_h = extraer_todas_centrales(datos_dia_sel[prog].get("HIDRO"))
+            dic_t = extraer_todas_centrales(datos_dia_sel[prog].get("TERMICA"))
+            dic_r = extraer_todas_centrales(datos_dia_sel[prog].get("RER"))
+            
+            tot_h, tot_t_gas, tot_t_d2, tot_e, tot_s, tot_o = [0]*48, [0]*48, [0]*48, [0]*48, [0]*48, [0]*48
+            
+            for k, v in dic_h.items(): tot_h = suma_elementos(tot_h, rellenar_hasta_48(v))
+            for k, v in dic_t.items():
+                k_clean = str(k).strip().upper()
+                if "D2" in k_clean: tot_t_d2 = suma_elementos(tot_t_d2, rellenar_hasta_48(v))
+                else: tot_t_gas = suma_elementos(tot_t_gas, rellenar_hasta_48(v))
+            for k, v in dic_r.items():
+                k_clean = str(k).strip()
+                v_48 = rellenar_hasta_48(v)
+                if k_clean in barras_eol: tot_e = suma_elementos(tot_e, v_48)
+                elif k_clean in barras_solar: tot_s = suma_elementos(tot_s, v_48)
+                elif k_clean in barras_rer: tot_h = suma_elementos(tot_h, v_48)
+                else: tot_o = suma_elementos(tot_o, v_48)
+                
+            tech_by_prog[prog] = {
+                "Térmica (Gas/GN/Carbón)": tot_t_gas,
+                "Térmica (Diésel - D2)": tot_t_d2,
+                "Hidráulica": tot_h,
+                "Eólica": tot_e,
+                "Solar": tot_s,
+                "Otras (Biomasa/RER)": tot_o
+            }
+            
+        # 3. Costurar/Empalmar la Matriz Final usando el vector de tiempos (active_prog_per_period)
+        stitched_tech = {k: [0]*48 for k in tech_by_prog[programas_validos[0]].keys()}
+        for i in range(48):
+            prog_reinante = active_prog_per_period[i]
+            for k in stitched_tech.keys():
+                stitched_tech[k][i] = tech_by_prog[prog_reinante][k][i]
+                
+        # Limpieza de tecnologías apagadas (0 MW)
+        stitched_tech = {k: v for k, v in stitched_tech.items() if sum([x for x in v if pd.notna(x)]) > 0}
+        
+        if stitched_tech:
+            df_tech = pd.DataFrame(stitched_tech)
+            df_tech.insert(0, 'Hora', horas_str)
+            st.plotly_chart(crear_grafica_area_apilada(df_tech, "Distribución Energética Consolidada Continua"), use_container_width=True)
 
     # === EÓLICO ===
     with t_eol:
