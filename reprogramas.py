@@ -19,7 +19,9 @@ MES_TXT = [
     "JULIO","AGOSTO","SETIEMBRE","OCTUBRE","NOVIEMBRE","DICIEMBRE"
 ]
 barras = ["SANTA ROSA 220 A", "MOQUEGUA 220", "ZORRITOS 220"]
-rdo_letras = list("ABCDE")
+
+# AMPLIACIÓN DE REPROGRAMAS: Busca automáticamente hasta 10 reprogramas (A hasta J)
+rdo_letras = list("ABCDEFGHIJ")
 
 inicio_hora = datetime(2000, 1, 1, 0, 30)
 horas_str = [(inicio_hora + timedelta(minutes=30*i)).strftime("%H:%M") for i in range(48)]
@@ -181,7 +183,7 @@ def extraer_datos_dia_memoria(f):
                             datos_dia["Dataframes"][nombre][key] = cargar_df_desde_zip(zf, stem)
                 datos_dia["Log"].append(f"✅ {nombre}")
             else:
-                datos_dia["Log"].append(f"❌ {nombre} (No publicado)")
+                datos_dia["Log"].append(f"❌ {nombre} (No publicado por el COES)")
         except Exception:
             datos_dia["Log"].append(f"❌ {nombre} (Error de red)")
     return datos_dia
@@ -239,7 +241,8 @@ if st.sidebar.button("Extraer Curvas y Motivos", type="primary"):
         st.session_state['fecha_ini'], st.session_state['fecha_fin'] = ini, fin
         
         status, prog_bar = st.empty(), st.progress(0)
-        log_exp = st.expander("Bitácora de Extracción COES", expanded=False)
+        # Bitácora retraída por defecto
+        log_exp = st.expander("Ver bitácora de extracción del COES", expanded=False)
         
         datos_completos = {}
         dias = (fin - ini).days + 1
@@ -272,7 +275,6 @@ if 'datos_yupana' in st.session_state:
     datos_dia_sel = data[fecha_analisis]["Dataframes"]
     programas_validos = [p for p in ["PDO"] + [f"RDO_{l}" for l in rdo_letras] if p in datos_dia_sel]
     
-    # NUEVAS PESTAÑAS AGREGADAS
     t_cmg, t_hidro, t_term, t_res_fria, t_res_gas, t_dem, t_eol, t_sol, t_motivos = st.tabs([
         "💸 CMG", "💧 Despacho Hidro", "🔥 Despacho Térmico", "🧊 Reserva Fría Gas", "⛽ Reserva Gas", 
         "📈 Demanda Sistema", "💨 Despacho Eólico", "☀️ Despacho Solar", "📋 Intervenciones"
@@ -287,7 +289,6 @@ if 'datos_yupana' in st.session_state:
             for prog in programas_validos:
                 df_cmg = datos_dia_sel[prog].get("CMG")
                 if df_cmg is not None and not df_cmg.empty and barra in df_cmg.columns:
-                    # Garantiza rellenar la lista extraída hasta 48
                     vals = rellenar_hasta_48(extraer_columna(df_cmg, barra))
                     df_plot[prog.replace("_", " ")] = vals
                     datos_existen = True
@@ -307,7 +308,6 @@ if 'datos_yupana' in st.session_state:
             dic_r = renombrar_con_sufijos(extraer_todas_centrales(datos_dia_sel[prog].get("RER")), "RER")
             dic_h.update({k: v for k, v in dic_r.items() if "(HID)" in k})
             
-            # Solo guardamos las que tienen >0 en algún momento
             activas_prog = {k: rellenar_hasta_48(v) for k, v in dic_h.items() if sum([x for x in v if pd.notna(x)]) > 0}
             todas_hidro.update(activas_prog.keys())
             dict_por_prog[prog] = activas_prog
