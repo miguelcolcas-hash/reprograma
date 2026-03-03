@@ -23,11 +23,12 @@ barras = ["SANTA ROSA 220 A", "MOQUEGUA 220", "ZORRITOS 220"]
 rdo_letras = list("ABCDEFGHIJ")
 
 archivos_clave = {
-    "HIDRO"   : "Hidro - Despacho (MW)",
-    "TERMICA" : "Termica - Despacho (MW)",
-    "RER"     : "Rer y No COES - Despacho (MW)",
-    "CMG"     : "CMg - Barra ($ por MWh)",
-    "POT_EFEC": "Termica - Potencia Efectiva (MW)"
+    "HIDRO"        : "Hidro - Despacho (MW)",
+    "TERMICA"      : "Termica - Despacho (MW)",
+    "RER"          : "Rer y No COES - Despacho (MW)",
+    "CMG"          : "CMg - Barra ($ por MWh)",
+    "POT_EFEC"     : "Termica - Potencia Efectiva (MW)",
+    "RESTRICCIONES": "datosrestricciones"
 }
 
 # --- MAPA CROMÁTICO Y DE APILAMIENTO OSINERGMIN ---
@@ -55,19 +56,10 @@ ORDEN_TECNOLOGIAS = [
 def clasificar_tecnologia_yupana(nombre_central, origen_archivo=""):
     nombre = str(nombre_central).upper()
     
-    biomasa_kws = [
-        "PARAMONGA", "JACINTO", "HUAYCOLORO", "GRINGA", "MAPLE", "FLEXIGAS", "NAFTA", 
-        "LUREN", "BIOMASA", "BIOGAS", "AGROAURORA", "CAHUAPANAS", "SUPE", "LAREDO", 
-        "PETRAMAS", "DOÑA CATALINA", "DONA CATALINA", "PORTILLO", "CASA GRANDE", "CASAGRANDE",
-        "CANA BRAVA", "AGROOLMOS", "CALLAO", "REFTALARA"
-    ]
+    biomasa_kws = ["PARAMONGA", "JACINTO", "HUAYCOLORO", "GRINGA", "MAPLE", "FLEXIGAS", "NAFTA", "LUREN", "BIOMASA", "BIOGAS", "AGROAURORA", "CAHUAPANAS", "SUPE", "LAREDO", "PETRAMAS", "DOÑA CATALINA", "DONA CATALINA", "PORTILLO", "CASA GRANDE", "CASAGRANDE", "CANA BRAVA", "AGROOLMOS", "CALLAO", "REFTALARA"]
     if any(kw in nombre for kw in biomasa_kws): return "Biogás+Biomasa+Nafta+Flexigas"
         
-    solar_kws = [
-        "SOL", "PANAMERICANA", "RUBI", "INTIPAMPA", "CLEMESI", "MATARANI", 
-        "REPARTICION", "MAJES", "MISTI", "TACNA", "CS CARHUAQUERO", 
-        "CSCOENERGY", "CSF", "CSSUNNY", "CS SAN MARTIN", "CSSANMARTIN"
-    ]
+    solar_kws = ["SOL", "PANAMERICANA", "RUBI", "INTIPAMPA", "CLEMESI", "MATARANI", "REPARTICION", "MAJES", "MISTI", "TACNA", "CS CARHUAQUERO", "CSCOENERGY", "CSF", "CSSUNNY", "CS SAN MARTIN", "CSSANMARTIN"]
     if any(kw in nombre for kw in solar_kws): return "Solar"
         
     eolica_kws = ["EOL", "WAYRA", "LOMITAS", "CUPISNIQUE", "PE TALARA", "MARCONA", "TRES HERMANAS", "DUNA", "HUAMBOS", "SAN JUAN"]
@@ -76,11 +68,9 @@ def clasificar_tecnologia_yupana(nombre_central, origen_archivo=""):
     hidro_kws = ["HIDRO", "CH ", "C.H.", "MANTARO", "RESTITUCION", "CHAGLLA", "CERRO DEL AGUILA", "MACHUPICCHU", "HUINCO", "CHARCANI", "CAÑON DEL PATO", "SAN GABAN", "CHIMAY", "PLATANAL", "YUNCHAN", "QUISHUAR", "AURA", "ZONGO", "CARPAPATA", "LA JOYA", "STACRUZ", "HUASAHUASI", "RONCADOR", "PURMACANA", "NIMPERIAL", "PIZARRAS", "POECHOS", "CANCHAYLLO", "CHANCAY", "RUCUY", "RUNATULLO", "YANAPAMPA", "POTRERO", "YARUCAYA", "CHANGELI", "8AGOSTO", "RENOVANDESH", "EL CARMEN", "TUPURI", "HUALLIN", "GALLITO", "YAUPI", "MATUCANA", "CALLAHUANCA", "MOYOPAMPA", "HUANZA", "CHEO", "CHURO", "CHHER", "CHZANA", "CURUMUY", "PIAS"]
     if origen_archivo == "HIDRO" or any(kw in nombre for kw in hidro_kws): return "Hidráulica"
         
-    # 1ro: EVALUAR SI ES DIÉSEL EXPLICITAMENTE (Atrapa casos como "FENIX CCOMB GT12 D2")
     diesel_kws = ["D2", "R6", "RESIDUAL", "DIESEL", "ILO21", "ILO 21", "ILO1", "ILO 1", "MOLLENDO", "RECKA", "INDEPENDENCIA", "SAMANCO", "TARAPOTO", "IQUITOS", "YURIMAGUAS", "PUERTO MALDONADO", "BELLAVISTA", "PEDRO RUIZ", "ETEN", "PIURA D", "CALANA", "ELOR", "SHCUMMINS", "SNTV", "NEPI", "PUERTO BRAVO", "NODO"]
     if any(kw in nombre for kw in diesel_kws): return "Residual+Diésel D2"
-
-    # 2do: FILTRO DE CICLOS COMBINADOS Y DUALES (Si llegó aquí, es porque NO tiene sufijo D2/Residual explícito, por tanto es Gas)
+        
     duales_gas_kws = ["FENIX", "KALLPA", "CHILCA", "VENTANILLA", "LAS FLORES", "SANTO DOMINGO", "MALACAS", "TALLANCA", "AGUAYTIA", "TERMOSELVA"]
     if any(ex in nombre for ex in duales_gas_kws):
         if any(kw in nombre for kw in ["MALACAS", "TALLANCA", "AGUAYTIA", "TERMOSELVA"]):
@@ -92,7 +82,17 @@ def clasificar_tecnologia_yupana(nombre_central, origen_archivo=""):
         
     return "Gas de Camisea"
 
-# --- 4. INGESTA Y ETL REDUNDANTE ---
+def get_cc_group(name):
+    n_upper = name.upper()
+    cc_bases = ["FENIX", "KALLPA", "CHILCA1", "CHILCA 1", "CHILCA2", "CHILCA 2", "VENTANILLA", "LAS FLORES", "SANTO DOMINGO"]
+    for base in cc_bases:
+        if base in n_upper:
+            if "CHILCA1" in base or "CHILCA 1" in base: return "CHILCA 1 (CCOMB D2)"
+            if "CHILCA2" in base or "CHILCA 2" in base: return "CHILCA 2 (CCOMB D2)"
+            return f"{base} (CCOMB D2)"
+    return name
+
+# --- 4. INGESTA Y ETL ---
 def cargar_df_desde_zip(zf, stem):
     for info in zf.infolist():
         nombre_base = info.filename.split('/')[-1]
@@ -133,6 +133,40 @@ def extraer_todas_centrales(df):
                 series[nombre].append(float(partes[i]) if i < len(partes) and partes[i] else 0.0)
     return series
 
+def extraer_restricciones_100(df):
+    series = {}
+    if df is None or df.empty: return series
+    if df.shape[1] < 55: return series
+    
+    for _, row in df.iterrows():
+        try:
+            central = str(row.iloc[1]).strip()
+            cat = str(row.iloc[3]).upper()
+            desc = str(row.iloc[5]).upper()
+            
+            if "MANTENIMIENTO" in desc and ("TERMICA" in cat or "TERMICO" in cat):
+                if central not in series:
+                    series[central] = [False] * 48
+                for i in range(48):
+                    val = str(row.iloc[7+i]).strip()
+                    if val in ['100', '100.0', '100,0']:
+                        series[central][i] = True
+        except Exception:
+            pass
+    return series
+
+def is_indisponible(c_name, p_idx, dics_cache, p_key):
+    if "RESTRICCIONES" not in dics_cache[p_key]: return False
+    r_dict = dics_cache[p_key]["RESTRICCIONES"]
+    if c_name in r_dict: return r_dict[c_name][p_idx]
+    
+    nc = str(c_name).replace(" ", "").upper()
+    for k, v in r_dict.items():
+        kc = str(k).replace(" ", "").upper()
+        if kc == nc or nc in kc or kc in nc:
+            return v[p_idx]
+    return False
+
 def extraer_columna(df, col):
     return pd.to_numeric(df[col], errors='coerce').fillna(0).tolist() if df is not None and col in df.columns else None
 
@@ -163,9 +197,7 @@ def renombrar_con_sufijos(diccionario_series, tipo_origen):
         else: renamed[f"{c_clean} (TER)"] = vals
     return renamed
 
-# EXTRAE EL MOTIVO DINÁMICAMENTE BUSCANDO LA PALABRA "MOTIVO" EN LA COLUMNA C
 def extraer_motivo_dinamico(y, m, M, d, ddmm, l, headers):
-    # RUTAS DE EXTRACCIÓN AMPLIADAS PARA CUBRIR TODAS LAS FORMAS DE NOMBRAR CARPETAS EN EL COES
     urls = [
         f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog%20{ddmm}{l}%2FReprog_{ddmm}{l}.xlsx",
         f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog%20{ddmm}%20{l}%2FReprog_{ddmm}{l}.xlsx",
@@ -179,22 +211,17 @@ def extraer_motivo_dinamico(y, m, M, d, ddmm, l, headers):
             if r.status_code == 200 and len(r.content) > 1000:
                 wb = openpyxl.load_workbook(io.BytesIO(r.content), data_only=True)
                 ws = wb.worksheets[0]
-                
                 for row in range(1, ws.max_row + 1):
                     cell_value = ws.cell(row=row, column=3).value
                     if cell_value and "MOTIVO" in str(cell_value).upper():
                         motivo_val = ws.cell(row=row+1, column=4).value
-                        if motivo_val:
-                            return str(motivo_val).strip()
-                        else:
-                            return "Motivo encontrado pero vacío en la celda contigua."
-                            
+                        if motivo_val: return str(motivo_val).strip()
+                        else: return "Motivo encontrado pero vacío en la celda contigua."
                 return "No se encontró la palabra 'MOTIVO' en la columna C."
         except:
             pass
     return "No se pudo extraer el archivo de origen o hubo un error de lectura."
 
-# TTL=300 EVITA EL POISONING DEL CACHÉ DURANTE EL ÚLTIMO DÍA: SE ACTUALIZA CADA 5 MINUTOS
 @st.cache_data(show_spinner=False, ttl=300)
 def extraer_datos_dia_memoria(f):
     y, m, d = f.strftime("%Y"), f.strftime("%m"), f.strftime("%d")
@@ -231,7 +258,10 @@ def extraer_datos_dia_memoria(f):
                     with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
                         datos_dia["Dataframes"][nombre] = {}
                         for key, stem in archivos_clave.items():
-                            datos_dia["Dataframes"][nombre][key] = cargar_df_desde_zip(zf, stem)
+                            if key == "RESTRICCIONES":
+                                datos_dia["Dataframes"][nombre][key] = extraer_restricciones_100(cargar_df_desde_zip(zf, stem))
+                            else:
+                                datos_dia["Dataframes"][nombre][key] = extraer_todas_centrales(cargar_df_desde_zip(zf, stem)) if key != "CMG" else cargar_df_desde_zip(zf, stem)
                     
                     if "RDO" in nombre:
                         letra = nombre.split("_")[-1]
@@ -251,25 +281,24 @@ def extraer_datos_dia_memoria(f):
                 
     return datos_dia
 
-# --- 5. MOTOR GRÁFICO MAESTRO MULTIDÍA (SIN TÍTULOS NATIVOS) ---
 def crear_grafica_area_apilada(df_plot, marcadores=None, aplicar_colores=False, orden_fijo=None):
     df_plot = df_plot.copy().fillna(0)
     num_cols = [c for c in df_plot.columns if c != 'Hora']
     df_plot[num_cols] = df_plot[num_cols].apply(pd.to_numeric, errors='coerce').fillna(0).round(2)
     
-    df_plot['TOTAL_SISTEMA'] = df_plot[num_cols].sum(axis=1).round(2)
-    idx_pico = df_plot['TOTAL_SISTEMA'].idxmax()
-    pico_mw = df_plot.loc[idx_pico, 'TOTAL_SISTEMA']
+    df_plot['TOTAL_GRAFICA'] = df_plot[num_cols].sum(axis=1).round(2)
+    idx_pico = df_plot['TOTAL_GRAFICA'].idxmax()
+    pico_mw = df_plot.loc[idx_pico, 'TOTAL_GRAFICA']
     pico_hora = df_plot.loc[idx_pico, 'Hora']
     
     if orden_fijo:
         orden_columnas = [col for col in orden_fijo if col in df_plot.columns]
     else:
-        totales_por_unidad = df_plot.drop(columns=['Hora', 'TOTAL_SISTEMA']).sum()
+        totales_por_unidad = df_plot.drop(columns=['Hora', 'TOTAL_GRAFICA']).sum()
         orden_columnas = totales_por_unidad.sort_values(ascending=False).index.tolist()
     
-    cols_mantener = ['Hora', 'TOTAL_SISTEMA'] + orden_columnas
-    df_melt = df_plot[cols_mantener].melt(id_vars=['Hora', 'TOTAL_SISTEMA'], var_name='Unidad Generadora', value_name='Potencia_MW')
+    cols_mantener = ['Hora', 'TOTAL_GRAFICA'] + orden_columnas
+    df_melt = df_plot[cols_mantener].melt(id_vars=['Hora', 'TOTAL_GRAFICA'], var_name='Unidad Generadora', value_name='Potencia_MW')
     
     df_melt['Potencia_Plot'] = df_melt['Potencia_MW']
     
@@ -279,7 +308,7 @@ def crear_grafica_area_apilada(df_plot, marcadores=None, aplicar_colores=False, 
     fig = px.area(**kw_args)
     fig.update_xaxes(tickformat="%d/%m %H:%M", tickangle=45)
     
-    fig.add_scatter(x=df_plot['Hora'], y=df_plot['TOTAL_SISTEMA'], mode='lines', line=dict(width=0, color='rgba(0,0,0,0)'), name='<b>⚡ TOTAL SISTEMA</b>', showlegend=False)
+    fig.add_scatter(x=df_plot['Hora'], y=df_plot['TOTAL_GRAFICA'], mode='lines', line=dict(width=0, color='rgba(0,0,0,0)'), name='<b>∑ TOTAL</b>', showlegend=False)
     
     for trace in fig.data:
         y_vals = trace.y
@@ -295,7 +324,7 @@ def crear_grafica_area_apilada(df_plot, marcadores=None, aplicar_colores=False, 
         
         trace.hoverinfo = hover_flags
         
-        if 'TOTAL SISTEMA' in trace.name:
+        if trace.name and 'TOTAL' in trace.name:
             trace.hovertemplate = '<b>%{y:,.2f} MW</b><br>%{x|%d/%m %H:%M}'
         else:
             trace.hovertemplate = "%{y:,.2f} MW"
@@ -303,11 +332,9 @@ def crear_grafica_area_apilada(df_plot, marcadores=None, aplicar_colores=False, 
     if marcadores:
         for ts, texto in marcadores:
             fig.add_vline(x=ts, line_width=1.5, line_dash="dash", line_color="rgba(255,255,255,0.7)")
-            
             texto_limpio = texto.replace("(", "").replace(")", "")
             texto_con_hora = f"{texto_limpio} {ts.strftime('%H:%M')}"
             align = "left" if ts.hour == 0 and ts.minute == 30 else "center"
-            
             fig.add_annotation(
                 x=ts, y=1.02, yref="paper", text=f"<b>{texto_con_hora}</b>", showarrow=False, 
                 font=dict(size=10, color="white"), bgcolor="#e74c3c", bordercolor="white", 
@@ -348,6 +375,9 @@ if st.sidebar.button("Construir Matriz de Operación Continua", type="primary"):
 # --- 7. VISUALIZACIÓN DINÁMICA MULTIDÍA ---
 if 'datos_yupana' in st.session_state:
     data = st.session_state['datos_yupana']
+    # Recuperar las variables globales para que los botones interactivos no generen error NameError
+    ini = st.session_state['fecha_ini']
+    fin = st.session_state['fecha_fin']
     fechas_ordenadas = sorted(data.keys())
     
     active_prog_dict = {}
@@ -363,21 +393,15 @@ if 'datos_yupana' in st.session_state:
         
         dics_cache = {}
         for p in progs:
-            dics_cache[p] = {
-                "HIDRO": extraer_todas_centrales(df_dia_sel[p].get("HIDRO")),
-                "TERMICA": extraer_todas_centrales(df_dia_sel[p].get("TERMICA")),
-                "RER": extraer_todas_centrales(df_dia_sel[p].get("RER")),
-                "POT_EFEC": extraer_todas_centrales(df_dia_sel[p].get("POT_EFEC")),
-                "CMG": df_dia_sel[p].get("CMG")
-            }
+            dics_cache[p] = df_dia_sel[p]
             
         active_prog = [progs[0]] * 48
         if len(progs) > 1:
             for p in progs[1:]:
                 tot = [0.0]*48
-                for v in dics_cache[p]["HIDRO"].values(): tot = suma_elementos_variable(tot, rellenar_hasta_48(v))
-                for v in dics_cache[p]["TERMICA"].values(): tot = suma_elementos_variable(tot, rellenar_hasta_48(v))
-                for v in dics_cache[p]["RER"].values(): tot = suma_elementos_variable(tot, rellenar_hasta_48(v))
+                for v in dics_cache[p].get("HIDRO", {}).values(): tot = suma_elementos_variable(tot, rellenar_hasta_48(v))
+                for v in dics_cache[p].get("TERMICA", {}).values(): tot = suma_elementos_variable(tot, rellenar_hasta_48(v))
+                for v in dics_cache[p].get("RER", {}).values(): tot = suma_elementos_variable(tot, rellenar_hasta_48(v))
                 for i, val in enumerate(tot):
                     if val > 100: 
                         for j in range(i, 48): active_prog[j] = p
@@ -396,9 +420,9 @@ if 'datos_yupana' in st.session_state:
         dics_cache_dict[f] = dics_cache
         timestamps_globales.extend(ts_dia)
 
-    t_cmg, t_hidro, t_term, t_inactiva, t_dem, t_eol, t_sol, t_motivos_rdo = st.tabs([
+    t_cmg, t_hidro, t_term, t_inactiva, t_indisp, t_dem, t_eol, t_sol, t_motivos_rdo = st.tabs([
         "💸 CMG", "💧 Despacho Hidro", "🔥 Despacho Térmico", 
-        "🛑 Inactiva Diésel", "📈 Demanda y Generación", "💨 Eólico", "☀️ Solar", "📋 Motivos RDO"
+        "🛑 Capacidad no Despachada", "🛠️ Indisponible Diésel", "📈 Demanda y Generación", "💨 Eólico", "☀️ Solar", "📋 Motivos RDO"
     ])
 
     # === CMG ===
@@ -413,7 +437,7 @@ if 'datos_yupana' in st.session_state:
             dia_cmg = {b: [0.0]*48 for b in barras}
             for i in range(48):
                 p = active_prog[i]
-                df_c = dics_cache[p]["CMG"]
+                df_c = dics_cache[p].get("CMG")
                 
                 if df_c is not None:
                     df_c_cols = {str(col).strip(): col for col in df_c.columns}
@@ -457,7 +481,7 @@ if 'datos_yupana' in st.session_state:
             for i in range(48):
                 p = active_prog[i]
                 for arch in ["HIDRO", "TERMICA", "RER"]:
-                    if not dics_cache[p][arch]: continue
+                    if not dics_cache[p].get(arch): continue
                     
                     dic_renombrado = renombrar_con_sufijos(dics_cache[p][arch], arch if arch in ["HIDRO", "RER"] else "TERMICA")
                     
@@ -512,24 +536,12 @@ if 'datos_yupana' in st.session_state:
         st.markdown("### ☀️ Despacho Solar Continuo")
         render_tab_generico("SOLAR")
 
-    # === INACTIVA DIÉSEL CONTINUA (CÁLCULO POR INTERVALO Y AGRUPANDO MODOS CCOMB) ===
+    # === CAPACIDAD NO DESPACHADA (CON FILTRO ACTIVO) ===
     with t_inactiva:
-        st.markdown("### 🛑 Capacidad Inactiva Diésel/Residual")
-        st.info("Mapea la capacidad disponible no despachada en cada intervalo de media hora. Si la central enciende en un intervalo específico, su gráfica cae a 0 MW en esa hora. Los modos de Ciclos Combinados (1x1, 2x1) se agrupan tomando su capacidad máxima para no duplicar reservas.")
+        st.markdown("### 🛑 Capacidad no Despachada (Diésel/Residual)")
+        st.info("Muestra las unidades disponibles pero NO despachadas cada media hora. Si la central enciende en un intervalo, o está en mantenimiento al 100%, su gráfica cae a 0 MW en esa hora.")
         
         dfs_inactiva = []
-        mantenimiento_global = []
-        
-        def get_cc_group(name):
-            n_upper = name.upper()
-            cc_bases = ["FENIX", "KALLPA", "CHILCA1", "CHILCA 1", "CHILCA2", "CHILCA 2", "VENTANILLA", "LAS FLORES", "SANTO DOMINGO"]
-            for base in cc_bases:
-                if base in n_upper:
-                    if "CHILCA1" in base or "CHILCA 1" in base: return "CHILCA 1 (CCOMB D2)"
-                    if "CHILCA2" in base or "CHILCA 2" in base: return "CHILCA 2 (CCOMB D2)"
-                    return f"{base} (CCOMB D2)"
-            return name
-            
         for f in fechas_ordenadas:
             if f not in active_prog_dict: continue
             active_prog = active_prog_dict[f]
@@ -538,10 +550,11 @@ if 'datos_yupana' in st.session_state:
             diesel_plants = set()
             for p in set(active_prog):
                 for arch in ["TERMICA", "POT_EFEC"]:
-                    for c in dics_cache[p][arch].keys():
-                        if clasificar_tecnologia_yupana(c, arch) == "Residual+Diésel D2":
-                            diesel_plants.add(c)
-                            
+                    if arch in dics_cache[p]:
+                        for c in dics_cache[p][arch].keys():
+                            if clasificar_tecnologia_yupana(c, arch) == "Residual+Diésel D2":
+                                diesel_plants.add(c)
+                                
             grouped_plants = {}
             for c in diesel_plants:
                 grp = get_cc_group(c)
@@ -552,32 +565,33 @@ if 'datos_yupana' in st.session_state:
             for grp, units in grouped_plants.items():
                 efec_grp = [0.0]*48
                 desp_grp = [0.0]*48
+                indisp_grp = [False]*48
+                
                 for i in range(48):
                     p = active_prog[i]
                     d_val = 0.0
                     e_vals = []
+                    r_flag = False
+                    
                     for c in units:
                         d_c = 0.0
-                        if c in dics_cache[p]["TERMICA"]: d_c += rellenar_hasta_48(dics_cache[p]["TERMICA"][c])[i]
-                        if c in dics_cache[p]["RER"]: d_c += rellenar_hasta_48(dics_cache[p]["RER"][c])[i]
+                        if "TERMICA" in dics_cache[p] and c in dics_cache[p]["TERMICA"]: d_c += rellenar_hasta_48(dics_cache[p]["TERMICA"][c])[i]
+                        if "RER" in dics_cache[p] and c in dics_cache[p]["RER"]: d_c += rellenar_hasta_48(dics_cache[p]["RER"][c])[i]
                         d_val += d_c
                         
                         e_c = 0.0
-                        if c in dics_cache[p]["POT_EFEC"]: e_c += rellenar_hasta_48(dics_cache[p]["POT_EFEC"][c])[i]
+                        if "POT_EFEC" in dics_cache[p] and c in dics_cache[p]["POT_EFEC"]: e_c += rellenar_hasta_48(dics_cache[p]["POT_EFEC"][c])[i]
                         e_vals.append(e_c)
                         
+                        if is_indisponible(c, i, dics_cache, p): r_flag = True
+                            
                     desp_grp[i] = d_val
                     efec_grp[i] = max(e_vals) if e_vals else 0.0
+                    indisp_grp[i] = r_flag
                     
-                sum_efec = sum(efec_grp)
-                
-                if sum_efec == 0:
-                    mantenimiento_global.append({"Fecha": f.strftime('%d/%m/%Y'), "Central": grp, "Tecnología": "Residual+Diésel D2", "Estado Operativo": "Mantenimiento / Fuera de Servicio"})
-                else:
-                    # Reserva Inactiva: Cae a cero sólo en las horas específicas en las que la central generó (>0)
-                    idle = [0.0 if desp_grp[i] > 0 else max(0.0, round(efec_grp[i], 2)) for i in range(48)]
-                    if sum(idle) > 0:
-                        inactiva_dia[grp] = idle
+                idle = [0.0 if desp_grp[i] > 0 or indisp_grp[i] else max(0.0, round(efec_grp[i], 2)) for i in range(48)]
+                if sum(idle) > 0:
+                    inactiva_dia[grp] = idle
                         
             df_dia = pd.DataFrame(inactiva_dia) if inactiva_dia else pd.DataFrame()
             df_dia['Hora'] = ts_dict[f]
@@ -588,32 +602,149 @@ if 'datos_yupana' in st.session_state:
             num_cols = [c for c in df_total_inac.columns if c != 'Hora']
             
             if sum(df_total_inac[num_cols].sum()) > 0:
-                st.markdown("#### 📉 Capacidad Inactiva Detallada")
-                st.plotly_chart(crear_grafica_area_apilada(df_total_inac, marcadores=marcadores_globales, aplicar_colores=False), use_container_width=True)
                 
-                st.markdown("#### 📊 Capacidad Inactiva Acumulada Total")
-                df_acum = pd.DataFrame({"Hora": df_total_inac['Hora'], "Total Diésel Inactivo": df_total_inac[num_cols].sum(axis=1)})
-                fig_acum = px.area(df_acum, x="Hora", y="Total Diésel Inactivo", color_discrete_sequence=["#FF0000"])
+                # --- FILTRO MULTISELECT APLICADO ---
+                todas_centrales_inactiva = sorted(list(num_cols))
+                filtro_inactiva = st.multiselect(
+                    "⚡ Filtrar Centrales:", 
+                    options=todas_centrales_inactiva, 
+                    default=todas_centrales_inactiva, 
+                    placeholder="Seleccione las centrales..."
+                )
                 
-                for trace in fig_acum.data:
-                    trace.hovertemplate = '<b>%{y:,.2f} MW</b><br>%{x|%d/%m %H:%M}'
-                    trace.hoverinfo = ['skip' if pd.isna(y) or y <= 0.01 else 'all' for y in trace.y]
-                
-                for ts, txt in marcadores_globales:
-                    fig_acum.add_vline(x=ts, line_width=1.5, line_dash="dash", line_color="rgba(255,255,255,0.7)")
-                    txt_limpio = txt.replace("(", "").replace(")", "")
-                    txt_final = f"{txt_limpio} {ts.strftime('%H:%M')}"
-                    align = "left" if ts.hour == 0 and ts.minute == 30 else "center"
-                    fig_acum.add_annotation(x=ts, y=1.02, yref="paper", text=f"<b>{txt_final}</b>", showarrow=False, font=dict(size=10, color="white"), bgcolor="#e74c3c", bordercolor="white", borderwidth=1, borderpad=3, textangle=-90, yanchor="bottom", xanchor=align)
+                if filtro_inactiva:
+                    df_plot_inac = df_total_inac[['Hora'] + filtro_inactiva]
+                    
+                    st.markdown("#### 📉 Capacidad no Despachada (Detallada)")
+                    st.plotly_chart(crear_grafica_area_apilada(df_plot_inac, marcadores=marcadores_globales, aplicar_colores=False), use_container_width=True)
+                    
+                    st.markdown("#### 📊 Capacidad no Despachada (Total Seleccionado)")
+                    df_acum = pd.DataFrame({"Hora": df_plot_inac['Hora'], "Total Diésel Disponible": df_plot_inac[filtro_inactiva].sum(axis=1)})
+                    fig_acum = px.area(df_acum, x="Hora", y="Total Diésel Disponible", color_discrete_sequence=["#FF0000"])
+                    
+                    for trace in fig_acum.data:
+                        trace.hovertemplate = '<b>%{y:,.2f} MW</b><br>%{x|%d/%m %H:%M}'
+                        trace.hoverinfo = ['skip' if pd.isna(y) or y <= 0.01 else 'all' for y in trace.y]
+                    
+                    for ts, txt in marcadores_globales:
+                        fig_acum.add_vline(x=ts, line_width=1.5, line_dash="dash", line_color="rgba(255,255,255,0.7)")
+                        txt_limpio = txt.replace("(", "").replace(")", "")
+                        txt_final = f"{txt_limpio} {ts.strftime('%H:%M')}"
+                        align = "left" if ts.hour == 0 and ts.minute == 30 else "center"
+                        fig_acum.add_annotation(x=ts, y=1.02, yref="paper", text=f"<b>{txt_final}</b>", showarrow=False, font=dict(size=10, color="white"), bgcolor="#e74c3c", bordercolor="white", borderwidth=1, borderpad=3, textangle=-90, yanchor="bottom", xanchor=align)
 
-                fig_acum.update_layout(hovermode="x unified", height=550, margin=dict(t=150, b=50, l=60, r=50))
-                st.plotly_chart(fig_acum, use_container_width=True)
+                    fig_acum.update_layout(hovermode="x unified", height=550, margin=dict(t=150, b=50, l=60, r=50))
+                    st.plotly_chart(fig_acum, use_container_width=True)
+                else:
+                    st.warning("Seleccione al menos una central para visualizar la gráfica.")
             else:
-                st.success("✅ Toda la capacidad Diésel/Residual disponible fue despachada o no hubo potencia inactiva en el periodo.")
+                st.success("✅ Toda la capacidad Diésel/Residual disponible fue despachada o se encontraba en mantenimiento.")
+
+    # === INDISPONIBLE DIÉSEL ===
+    with t_indisp:
+        st.markdown("### 🛠️ Indisponible Diésel (Mantenimiento)")
+        st.info("Identifica centrales diésel no despachadas y grafica solo las que se encuentran indisponibles (por 0 MW Efectivos o restricciones al 100% en la matriz).")
+        
+        dfs_indisp = []
+        indisponibles_lista = []
+        sin_match_lista = []
+        
+        for f in fechas_ordenadas:
+            if f not in active_prog_dict: continue
+            active_prog = active_prog_dict[f]
+            dics_cache = dics_cache_dict[f]
+            
+            diesel_plants = set()
+            for p in set(active_prog):
+                for arch in ["TERMICA", "POT_EFEC"]:
+                    if arch in dics_cache[p]:
+                        for c in dics_cache[p][arch].keys():
+                            if clasificar_tecnologia_yupana(c, arch) == "Residual+Diésel D2":
+                                diesel_plants.add(c)
+                                
+            grouped_plants = {}
+            for c in diesel_plants:
+                grp = get_cc_group(c)
+                if grp not in grouped_plants: grouped_plants[grp] = []
+                grouped_plants[grp].append(c)
+
+            indisp_dia = {}
+            for grp, units in grouped_plants.items():
+                efec_grp = [0.0]*48
+                desp_grp = [0.0]*48
+                indisp_grp = [False]*48
                 
-        if mantenimiento_global:
-            st.markdown("#### 🛠️ Centrales en Mantenimiento (0 MW Efectivo)")
-            st.dataframe(pd.DataFrame(mantenimiento_global), use_container_width=True)
+                for i in range(48):
+                    p = active_prog[i]
+                    d_val = 0.0
+                    e_vals = []
+                    r_flag = False
+                    
+                    for c in units:
+                        d_c = 0.0
+                        if "TERMICA" in dics_cache[p] and c in dics_cache[p]["TERMICA"]: d_c += rellenar_hasta_48(dics_cache[p]["TERMICA"][c])[i]
+                        if "RER" in dics_cache[p] and c in dics_cache[p]["RER"]: d_c += rellenar_hasta_48(dics_cache[p]["RER"][c])[i]
+                        d_val += d_c
+                        
+                        e_c = 0.0
+                        if "POT_EFEC" in dics_cache[p] and c in dics_cache[p]["POT_EFEC"]: e_c += rellenar_hasta_48(dics_cache[p]["POT_EFEC"][c])[i]
+                        e_vals.append(e_c)
+                        
+                        if is_indisponible(c, i, dics_cache, p): r_flag = True
+                            
+                    desp_grp[i] = d_val
+                    efec_grp[i] = max(e_vals) if e_vals else 0.0
+                    indisp_grp[i] = r_flag
+                
+                sum_desp = sum(desp_grp)
+                sum_efec = sum(efec_grp)
+                has_restriccion = any(indisp_grp)
+                
+                unavail = [0.0]*48
+                indisp_periods = 0
+                unmatched_periods = 0
+                
+                for i in range(48):
+                    if desp_grp[i] <= 0: 
+                        if indisp_grp[i] or efec_grp[i] == 0:
+                            indisp_periods += 1
+                            unavail[i] = max(0.0, round(efec_grp[i], 2)) if indisp_grp[i] else 0.0
+                        elif efec_grp[i] > 0 and not indisp_grp[i]:
+                            unmatched_periods += 1
+                            
+                if sum(unavail) > 0:
+                    indisp_dia[grp] = unavail
+                
+                if sum_efec == 0:
+                    indisponibles_lista.append({"Fecha": f.strftime('%d/%m/%Y'), "Central": grp, "Estado Operativo": "0 MW Efectivo (Indisponible)"})
+                elif has_restriccion:
+                    indisponibles_lista.append({"Fecha": f.strftime('%d/%m/%Y'), "Central": grp, "Estado Operativo": "En Restricción (Mantenimiento)"})
+                
+                if unmatched_periods > 0:
+                    sin_match_lista.append({"Fecha": f.strftime('%d/%m/%Y'), "Central": grp, "Horas sin match": unmatched_periods / 2})
+                        
+            df_dia = pd.DataFrame(indisp_dia) if indisp_dia else pd.DataFrame()
+            df_dia['Hora'] = ts_dict[f]
+            dfs_indisp.append(df_dia)
+            
+        if dfs_indisp:
+            df_total_indisp = pd.concat(dfs_indisp, ignore_index=True).fillna(0)
+            num_cols = [c for c in df_total_indisp.columns if c != 'Hora']
+            
+            if sum(df_total_indisp[num_cols].sum()) > 0:
+                st.markdown("#### 📉 Indisponibilidad Detallada (Mantenimiento)")
+                st.plotly_chart(crear_grafica_area_apilada(df_total_indisp, marcadores=marcadores_globales, aplicar_colores=False), use_container_width=True)
+            else:
+                st.success("✅ No hubo centrales Diésel/Residual con potencia > 0 reportando indisponibilidad en el periodo.")
+
+        if indisponibles_lista:
+            st.markdown("#### 📝 Centrales Concordantes (Indisponibilidad Justificada en YUPANA)")
+            st.dataframe(pd.DataFrame(indisponibles_lista), use_container_width=True)
+            
+        if sin_match_lista:
+            st.markdown("#### ⚠️ Centrales sin Match en Restricciones (Las que figuran en Capacidad no Despachada)")
+            st.warning("Las siguientes centrales térmicas estuvieron apagadas (0 MW despachados) y tenían potencia efectiva, pero NO se encontró un registro de mantenimiento al 100% en las restricciones. (Es decir, el sistema las vio sanas pero no las usó).")
+            st.dataframe(pd.DataFrame(sin_match_lista), use_container_width=True)
 
     # === DEMANDA Y MATRIZ ENERGÉTICA ===
     with t_dem:
@@ -632,7 +763,7 @@ if 'datos_yupana' in st.session_state:
             for i in range(48):
                 p = active_prog[i]
                 for arch in ["HIDRO", "TERMICA", "RER"]:
-                    d = dics_cache[p][arch]
+                    d = dics_cache[p].get(arch, {})
                     for k, v_list in d.items():
                         cat = clasificar_tecnologia_yupana(k, arch)
                         val = rellenar_hasta_48(v_list)[i]
@@ -692,9 +823,9 @@ if 'datos_yupana' in st.session_state:
         for f in fechas_ordenadas:
             if f in dics_cache_dict:
                 for p in set(active_prog_dict[f]):
-                    todas_las_centrales["HIDRO"].update(dics_cache_dict[f][p]["HIDRO"].keys())
-                    todas_las_centrales["TERMICA"].update(dics_cache_dict[f][p]["TERMICA"].keys())
-                    todas_las_centrales["RER"].update(dics_cache_dict[f][p]["RER"].keys())
+                    if "HIDRO" in dics_cache_dict[f][p]: todas_las_centrales["HIDRO"].update(dics_cache_dict[f][p]["HIDRO"].keys())
+                    if "TERMICA" in dics_cache_dict[f][p]: todas_las_centrales["TERMICA"].update(dics_cache_dict[f][p]["TERMICA"].keys())
+                    if "RER" in dics_cache_dict[f][p]: todas_las_centrales["RER"].update(dics_cache_dict[f][p]["RER"].keys())
 
         todas_activas = set(todas_las_centrales["HIDRO"].union(todas_las_centrales["TERMICA"], todas_las_centrales["RER"]))
         
@@ -715,7 +846,7 @@ if 'datos_yupana' in st.session_state:
                     
                     val = 0.0
                     for arch in ["HIDRO", "TERMICA", "RER"]:
-                        if c in dics_cache[p][arch]:
+                        if arch in dics_cache[p] and c in dics_cache[p][arch]:
                             val += rellenar_hasta_48(dics_cache[p][arch][c])[i]
                             
                     dic_export[nombre_columna].append(round(val, 2))
