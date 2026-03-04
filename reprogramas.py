@@ -273,11 +273,13 @@ def extraer_datos_dia_memoria(f):
             except Exception:
                 continue 
         
+        # LÓGICA DE DETENCIÓN: Si no se logró descargar el archivo, se asume que los subsecuentes tampoco existen.
         if not exito:
             if f == date.today() and "RDO" in nombre:
                 datos_dia["Log"].append(f"⏳ {nombre} (Aún no emitido)")
             else:
                 datos_dia["Log"].append(f"❌ {nombre} (No publicado)")
+            break # Interrumpe la iteración sobre los siguientes programas (ej. no busca RDO_B si falló RDO_A)
                 
     return datos_dia
 
@@ -287,9 +289,6 @@ def crear_grafica_area_apilada(df_plot, marcadores=None, aplicar_colores=False, 
     df_plot[num_cols] = df_plot[num_cols].apply(pd.to_numeric, errors='coerce').fillna(0).round(2)
     
     df_plot['TOTAL_GRAFICA'] = df_plot[num_cols].sum(axis=1).round(2)
-    idx_pico = df_plot['TOTAL_GRAFICA'].idxmax()
-    pico_mw = df_plot.loc[idx_pico, 'TOTAL_GRAFICA']
-    pico_hora = df_plot.loc[idx_pico, 'Hora']
     
     if orden_fijo:
         orden_columnas = [col for col in orden_fijo if col in df_plot.columns]
@@ -341,8 +340,6 @@ def crear_grafica_area_apilada(df_plot, marcadores=None, aplicar_colores=False, 
                 borderwidth=1, borderpad=3, textangle=-90, yanchor="bottom", xanchor=align
             )
             
-    fig.add_annotation(x=pico_hora, y=pico_mw, text=f"<b>Pico Máximo: {pico_mw:,.2f} MW</b><br>{pico_hora.strftime('%d/%m %H:%M')}", showarrow=True, arrowhead=2, arrowsize=1.5, arrowwidth=2, arrowcolor="#e74c3c", ax=0, ay=-50, font=dict(size=12, color="#c0392b"), bgcolor="rgba(255,255,255,0.8)", bordercolor="#c0392b", borderwidth=1, borderpad=4)
-    
     fig.update_layout(hovermode="x unified", height=650, margin=dict(t=150, b=50, l=60, r=50))
     return fig
 
@@ -375,7 +372,6 @@ if st.sidebar.button("Construir Matriz de Operación Continua", type="primary"):
 # --- 7. VISUALIZACIÓN DINÁMICA MULTIDÍA ---
 if 'datos_yupana' in st.session_state:
     data = st.session_state['datos_yupana']
-    # Recuperar las variables globales para que los botones interactivos no generen error NameError
     ini = st.session_state['fecha_ini']
     fin = st.session_state['fecha_fin']
     fechas_ordenadas = sorted(data.keys())
