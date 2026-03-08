@@ -33,28 +33,27 @@ archivos_clave = {
 
 # --- MAPA CROMÁTICO Y DE APILAMIENTO OSINERGMIN ---
 COLOR_MAP = {
-    "Biogás+Biomasa+Nafta+Flexigas": "#800080",    # Morado
-    "Solar": "#FFD700",                            # Amarillo
-    "Eólica": "#808080",                           # Plomo
-    "Hidráulica": "#1f77b4",                       # Azul
-    "Gas de Camisea": "#006400",                   # Verde oscuro
-    "Gas del Norte+Gas de la Selva": "#90EE90",    # Verde claro
-    "Residual+Diésel D2": "#FF0000"                # Rojo
+    "Biogás+Biomasa+Nafta+Flexigas": "#800080",
+    "Solar": "#FFD700",
+    "Eólica": "#808080",
+    "Hidráulica": "#1f77b4",
+    "Gas de Camisea": "#006400",
+    "Gas del Norte+Gas de la Selva": "#90EE90",
+    "Residual+Diésel D2": "#FF0000"
 }
 
 ORDEN_TECNOLOGIAS = [
-    "Biogás+Biomasa+Nafta+Flexigas",
-    "Solar",
-    "Eólica",
-    "Hidráulica",
-    "Gas de Camisea",
-    "Gas del Norte+Gas de la Selva",
+    "Biogás+Biomasa+Nafta+Flexigas", "Solar", "Eólica",
+    "Hidráulica", "Gas de Camisea", "Gas del Norte+Gas de la Selva",
     "Residual+Diésel D2"
 ]
 
 # --- 3. CLASIFICADOR TERMODINÁMICO MAESTRO ---
 def clasificar_tecnologia_yupana(nombre_central, origen_archivo=""):
-    nombre = str(nombre_central).upper()
+    nombre = str(nombre_central).upper().strip()
+    
+    # EXCEPCIÓN DIRECTA PARA CAÑA BRAVA
+    if "CH CANA BRAVA" in nombre: return "Hidráulica"
     
     biomasa_kws = ["PARAMONGA", "JACINTO", "HUAYCOLORO", "GRINGA", "MAPLE", "FLEXIGAS", "NAFTA", "LUREN", "BIOMASA", "BIOGAS", "AGROAURORA", "CAHUAPANAS", "SUPE", "LAREDO", "PETRAMAS", "DOÑA CATALINA", "DONA CATALINA", "PORTILLO", "CASA GRANDE", "CASAGRANDE", "CANA BRAVA", "AGROOLMOS", "CALLAO", "REFTALARA"]
     if any(kw in nombre for kw in biomasa_kws): return "Biogás+Biomasa+Nafta+Flexigas"
@@ -197,6 +196,7 @@ def renombrar_con_sufijos(diccionario_series, tipo_origen):
         else: renamed[f"{c_clean} (TER)"] = vals
     return renamed
 
+# --- FUNCIÓN ORIGINAL RESTAURADA ---
 def extraer_motivo_dinamico(y, m, M, d, ddmm, l, headers):
     urls = [
         f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog%20{ddmm}{l}%2FReprog_{ddmm}{l}.xlsx",
@@ -273,17 +273,17 @@ def extraer_datos_dia_memoria(f):
             except Exception:
                 continue 
         
-        # LÓGICA DE DETENCIÓN: Si no se logró descargar el archivo, se asume que los subsecuentes tampoco existen.
         if not exito:
             if f == date.today() and "RDO" in nombre:
                 datos_dia["Log"].append(f"⏳ {nombre} (Aún no emitido)")
             else:
                 datos_dia["Log"].append(f"❌ {nombre} (No publicado)")
-            break # Interrumpe la iteración sobre los siguientes programas (ej. no busca RDO_B si falló RDO_A)
+            break 
                 
     return datos_dia
 
-def crear_grafica_area_apilada(df_plot, marcadores=None, aplicar_colores=False, orden_fijo=None):
+# --- 5. FUNCIÓN GRAFICADORA DINÁMICA ---
+def crear_grafica_dinamica(df_plot, marcadores=None, aplicar_colores=False, orden_fijo=None, tipo_grafico="area"):
     df_plot = df_plot.copy().fillna(0)
     num_cols = [c for c in df_plot.columns if c != 'Hora']
     df_plot[num_cols] = df_plot[num_cols].apply(pd.to_numeric, errors='coerce').fillna(0).round(2)
@@ -304,9 +304,15 @@ def crear_grafica_area_apilada(df_plot, marcadores=None, aplicar_colores=False, 
     kw_args = {"data_frame": df_melt, "x": "Hora", "y": "Potencia_Plot", "color": "Unidad Generadora", "labels": {"Potencia_Plot": "Potencia Activa (MW)"}}
     if aplicar_colores: kw_args["color_discrete_map"] = COLOR_MAP
     
-    fig = px.area(**kw_args)
+    # Elección de motor gráfico dinámico
+    if tipo_grafico == "barra":
+        fig = px.bar(**kw_args)
+    else:
+        fig = px.area(**kw_args)
+        
     fig.update_xaxes(tickformat="%d/%m %H:%M", tickangle=45)
     
+    # Superposición de la serie Total ∑
     fig.add_scatter(x=df_plot['Hora'], y=df_plot['TOTAL_GRAFICA'], mode='lines', line=dict(width=0, color='rgba(0,0,0,0)'), name='<b>∑ TOTAL</b>', showlegend=False)
     
     for trace in fig.data:
@@ -464,6 +470,8 @@ if 'datos_yupana' in st.session_state:
                 
             fig_cmg.update_layout(hovermode="x unified", height=550, margin=dict(t=150, l=60))
             st.plotly_chart(fig_cmg, use_container_width=True)
+            with st.expander("Ver Tabla de Datos Original (CMG)"):
+                st.dataframe(df_cmg_plot, use_container_width=True)
 
     # === RUTINA MAESTRA ===
     def render_tab_generico(tipo_principal):
@@ -509,11 +517,22 @@ if 'datos_yupana' in st.session_state:
                 return
                 
             todas_centrales = sorted(active_cols)
-            filtro = st.multiselect(f"⚡ Filtrar Centrales:", options=todas_centrales, default=[], placeholder="Todas (vacío) o buscar...")
-            lista_filtro = filtro if filtro else todas_centrales
             
+            # Controles Superiores
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                filtro = st.multiselect(f"⚡ Filtrar Centrales:", options=todas_centrales, default=[], placeholder="Todas (vacío) o buscar...")
+            with col2:
+                tipo_grafico = st.radio("Estilo de Gráfica:", ["Área Apilada", "Barras Apiladas"], horizontal=True, key=f"radio_{tipo_principal}")
+                
+            lista_filtro = filtro if filtro else todas_centrales
             df_plot = df_total[['Hora'] + lista_filtro]
-            st.plotly_chart(crear_grafica_area_apilada(df_plot, marcadores=marcadores_globales), use_container_width=True)
+            tipo_str = "barra" if tipo_grafico == "Barras Apiladas" else "area"
+            
+            st.plotly_chart(crear_grafica_dinamica(df_plot, marcadores=marcadores_globales, tipo_grafico=tipo_str), use_container_width=True)
+            
+            st.markdown("#### 📋 Matriz de Datos Extraída")
+            st.dataframe(df_plot, use_container_width=True)
 
     with t_hidro:
         st.markdown("### 💧 Despacho Hidroeléctrico Continuo")
@@ -532,10 +551,10 @@ if 'datos_yupana' in st.session_state:
         st.markdown("### ☀️ Despacho Solar Continuo")
         render_tab_generico("SOLAR")
 
-    # === CAPACIDAD NO DESPACHADA (CON FILTRO ACTIVO) ===
+    # === CAPACIDAD NO DESPACHADA ===
     with t_inactiva:
         st.markdown("### 🛑 Capacidad no Despachada (Diésel/Residual)")
-        st.info("Muestra las unidades disponibles pero NO despachadas cada media hora. Si la central enciende en un intervalo, o está en mantenimiento al 100%, su gráfica cae a 0 MW en esa hora.")
+        st.info("Muestra las unidades disponibles pero NO despachadas cada media hora. Si la central enciende, o está en mantenimiento al 100%, su gráfica cae a 0 MW.")
         
         dfs_inactiva = []
         for f in fechas_ordenadas:
@@ -599,38 +618,23 @@ if 'datos_yupana' in st.session_state:
             
             if sum(df_total_inac[num_cols].sum()) > 0:
                 
-                # --- FILTRO MULTISELECT APLICADO ---
+                col1, col2 = st.columns([3, 1])
                 todas_centrales_inactiva = sorted(list(num_cols))
-                filtro_inactiva = st.multiselect(
-                    "⚡ Filtrar Centrales:", 
-                    options=todas_centrales_inactiva, 
-                    default=todas_centrales_inactiva, 
-                    placeholder="Seleccione las centrales..."
-                )
+                with col1:
+                    filtro_inactiva = st.multiselect("⚡ Filtrar Centrales:", options=todas_centrales_inactiva, default=todas_centrales_inactiva)
+                with col2:
+                    tipo_graf_inac = st.radio("Estilo de Gráfica:", ["Área Apilada", "Barras Apiladas"], horizontal=True, key="radio_inactiva")
+                
+                tipo_str_inac = "barra" if tipo_graf_inac == "Barras Apiladas" else "area"
                 
                 if filtro_inactiva:
                     df_plot_inac = df_total_inac[['Hora'] + filtro_inactiva]
                     
                     st.markdown("#### 📉 Capacidad no Despachada (Detallada)")
-                    st.plotly_chart(crear_grafica_area_apilada(df_plot_inac, marcadores=marcadores_globales, aplicar_colores=False), use_container_width=True)
+                    st.plotly_chart(crear_grafica_dinamica(df_plot_inac, marcadores=marcadores_globales, aplicar_colores=False, tipo_grafico=tipo_str_inac), use_container_width=True)
                     
-                    st.markdown("#### 📊 Capacidad no Despachada (Total Seleccionado)")
-                    df_acum = pd.DataFrame({"Hora": df_plot_inac['Hora'], "Total Diésel Disponible": df_plot_inac[filtro_inactiva].sum(axis=1)})
-                    fig_acum = px.area(df_acum, x="Hora", y="Total Diésel Disponible", color_discrete_sequence=["#FF0000"])
-                    
-                    for trace in fig_acum.data:
-                        trace.hovertemplate = '<b>%{y:,.2f} MW</b><br>%{x|%d/%m %H:%M}'
-                        trace.hoverinfo = ['skip' if pd.isna(y) or y <= 0.01 else 'all' for y in trace.y]
-                    
-                    for ts, txt in marcadores_globales:
-                        fig_acum.add_vline(x=ts, line_width=1.5, line_dash="dash", line_color="rgba(255,255,255,0.7)")
-                        txt_limpio = txt.replace("(", "").replace(")", "")
-                        txt_final = f"{txt_limpio} {ts.strftime('%H:%M')}"
-                        align = "left" if ts.hour == 0 and ts.minute == 30 else "center"
-                        fig_acum.add_annotation(x=ts, y=1.02, yref="paper", text=f"<b>{txt_final}</b>", showarrow=False, font=dict(size=10, color="white"), bgcolor="#e74c3c", bordercolor="white", borderwidth=1, borderpad=3, textangle=-90, yanchor="bottom", xanchor=align)
-
-                    fig_acum.update_layout(hovermode="x unified", height=550, margin=dict(t=150, b=50, l=60, r=50))
-                    st.plotly_chart(fig_acum, use_container_width=True)
+                    st.markdown("#### 📋 Matriz de Datos Extraída")
+                    st.dataframe(df_plot_inac, use_container_width=True)
                 else:
                     st.warning("Seleccione al menos una central para visualizar la gráfica.")
             else:
@@ -639,7 +643,7 @@ if 'datos_yupana' in st.session_state:
     # === INDISPONIBLE DIÉSEL ===
     with t_indisp:
         st.markdown("### 🛠️ Indisponible Diésel (Mantenimiento)")
-        st.info("Identifica centrales diésel no despachadas y grafica solo las que se encuentran indisponibles (por 0 MW Efectivos o restricciones al 100% en la matriz).")
+        st.info("Identifica centrales diésel no despachadas y grafica solo las que se encuentran indisponibles.")
         
         dfs_indisp = []
         indisponibles_lista = []
@@ -679,7 +683,6 @@ if 'datos_yupana' in st.session_state:
                     for c in units:
                         d_c = 0.0
                         if "TERMICA" in dics_cache[p] and c in dics_cache[p]["TERMICA"]: d_c += rellenar_hasta_48(dics_cache[p]["TERMICA"][c])[i]
-                        if "RER" in dics_cache[p] and c in dics_cache[p]["RER"]: d_c += rellenar_hasta_48(dics_cache[p]["RER"][c])[i]
                         d_val += d_c
                         
                         e_c = 0.0
@@ -728,19 +731,18 @@ if 'datos_yupana' in st.session_state:
             num_cols = [c for c in df_total_indisp.columns if c != 'Hora']
             
             if sum(df_total_indisp[num_cols].sum()) > 0:
+                col1, col2 = st.columns([3, 1])
+                with col2:
+                    tipo_graf_indisp = st.radio("Estilo de Gráfica:", ["Área Apilada", "Barras Apiladas"], horizontal=True, key="radio_indisp")
+                tipo_str_indisp = "barra" if tipo_graf_indisp == "Barras Apiladas" else "area"
+                
                 st.markdown("#### 📉 Indisponibilidad Detallada (Mantenimiento)")
-                st.plotly_chart(crear_grafica_area_apilada(df_total_indisp, marcadores=marcadores_globales, aplicar_colores=False), use_container_width=True)
+                st.plotly_chart(crear_grafica_dinamica(df_total_indisp, marcadores=marcadores_globales, aplicar_colores=False, tipo_grafico=tipo_str_indisp), use_container_width=True)
+                
+                st.markdown("#### 📋 Matriz de Datos Extraída")
+                st.dataframe(df_total_indisp, use_container_width=True)
             else:
                 st.success("✅ No hubo centrales Diésel/Residual con potencia > 0 reportando indisponibilidad en el periodo.")
-
-        if indisponibles_lista:
-            st.markdown("#### 📝 Centrales Concordantes (Indisponibilidad Justificada en YUPANA)")
-            st.dataframe(pd.DataFrame(indisponibles_lista), use_container_width=True)
-            
-        if sin_match_lista:
-            st.markdown("#### ⚠️ Centrales sin Match en Restricciones (Las que figuran en Capacidad no Despachada)")
-            st.warning("Las siguientes centrales térmicas estuvieron apagadas (0 MW despachados) y tenían potencia efectiva, pero NO se encontró un registro de mantenimiento al 100% en las restricciones. (Es decir, el sistema las vio sanas pero no las usó).")
-            st.dataframe(pd.DataFrame(sin_match_lista), use_container_width=True)
 
     # === DEMANDA Y MATRIZ ENERGÉTICA ===
     with t_dem:
@@ -777,104 +779,45 @@ if 'datos_yupana' in st.session_state:
         if dfs_demanda:
             df_dem_total = pd.concat(dfs_demanda, ignore_index=True)
             fig_dem = px.line(df_dem_total, x="Hora", y="Demanda Efectiva (MW)", markers=True)
-            
-            for trace in fig_dem.data:
-                trace.hovertemplate = '<b>%{y:,.2f} MW</b><br>%{x|%d/%m %H:%M}'
-            
-            for ts, txt in marcadores_globales:
-                fig_dem.add_vline(x=ts, line_width=1, line_dash="dash", line_color="grey")
-                txt_limpio = txt.replace("(", "").replace(")", "")
-                txt_final = f"{txt_limpio} {ts.strftime('%H:%M')}"
-                align = "left" if ts.hour == 0 and ts.minute == 30 else "center"
-                fig_dem.add_annotation(x=ts, y=1.02, yref="paper", text=f"<b>{txt_final}</b>", showarrow=False, font=dict(size=10, color="black"), bgcolor="lightgrey", textangle=-90, yanchor="bottom", xanchor=align)
-                
             fig_dem.update_layout(hovermode="x unified", height=500, margin=dict(t=150, l=60))
             st.plotly_chart(fig_dem, use_container_width=True)
 
         st.markdown("---")
         st.markdown("### 📊 Matriz de Generación Acumulada por Tecnología")
-        st.info("Distribución energética global en base al Despacho Activo Real. Respeta al 100% las categorizaciones de combustible y no suma reservas rodantes.")
+        st.info("Distribución energética global. Respeta al 100% las categorizaciones de combustible y no suma reservas rodantes.")
         
         if dfs_matriz:
             df_mat_total = pd.concat(dfs_matriz, ignore_index=True)
             num_cols = df_mat_total.columns.drop('Hora')
             df_mat_total = df_mat_total.loc[:, (df_mat_total != 0).any(axis=0) | (df_mat_total.columns == 'Hora')]
             
-            st.plotly_chart(crear_grafica_area_apilada(
-                df_mat_total, 
-                marcadores=marcadores_globales, aplicar_colores=True, orden_fijo=ORDEN_TECNOLOGIAS
-            ), use_container_width=True)
-
-        st.markdown("---")
-        st.markdown("### 🗄️ Datos Fuente: Despacho Continuo por Central")
-        
-        active_prog_global = []
-        for f in fechas_ordenadas:
-            if f in active_prog_dict:
-                active_prog_global.extend(active_prog_dict[f])
-        
-        df_stitched_raw = pd.DataFrame({'Hora': [ts.strftime("%Y-%m-%d %H:%M") for ts in timestamps_globales], "Programa_Vigente": active_prog_global})
-        
-        todas_las_centrales = {"HIDRO": set(), "TERMICA": set(), "RER": set()}
-        for f in fechas_ordenadas:
-            if f in dics_cache_dict:
-                for p in set(active_prog_dict[f]):
-                    if "HIDRO" in dics_cache_dict[f][p]: todas_las_centrales["HIDRO"].update(dics_cache_dict[f][p]["HIDRO"].keys())
-                    if "TERMICA" in dics_cache_dict[f][p]: todas_las_centrales["TERMICA"].update(dics_cache_dict[f][p]["TERMICA"].keys())
-                    if "RER" in dics_cache_dict[f][p]: todas_las_centrales["RER"].update(dics_cache_dict[f][p]["RER"].keys())
-
-        todas_activas = set(todas_las_centrales["HIDRO"].union(todas_las_centrales["TERMICA"], todas_las_centrales["RER"]))
-        
-        dic_export = {}
-        for f in fechas_ordenadas:
-            if f not in active_prog_dict: continue
-            active_prog = active_prog_dict[f]
-            dics_cache = dics_cache_dict[f]
+            col1, col2 = st.columns([3, 1])
+            with col2:
+                tipo_graf_mat = st.radio("Estilo de Gráfica:", ["Área Apilada", "Barras Apiladas"], horizontal=True, key="radio_matriz")
+            tipo_str_mat = "barra" if tipo_graf_mat == "Barras Apiladas" else "area"
             
-            for i in range(48):
-                p = active_prog[i]
-                for c in todas_activas:
-                    tipo_origen = "HIDRO" if c in todas_las_centrales["HIDRO"] else "TERMICA" if c in todas_las_centrales["TERMICA"] else "RER"
-                    cat = clasificar_tecnologia_yupana(c, tipo_origen)
-                    nombre_columna = f"{c} ({cat})"
-                    
-                    if nombre_columna not in dic_export: dic_export[nombre_columna] = []
-                    
-                    val = 0.0
-                    for arch in ["HIDRO", "TERMICA", "RER"]:
-                        if arch in dics_cache[p] and c in dics_cache[p][arch]:
-                            val += rellenar_hasta_48(dics_cache[p][arch][c])[i]
-                            
-                    dic_export[nombre_columna].append(round(val, 2))
-                    
-        for k, v_list in dic_export.items():
-            if sum(v_list) > 0:
-                df_stitched_raw[k] = v_list
-                
-        st.dataframe(df_stitched_raw, use_container_width=True)
-        
-        buffer_raw = io.BytesIO()
-        with pd.ExcelWriter(buffer_raw, engine='openpyxl') as writer:
-            df_stitched_raw.to_excel(writer, index=False, sheet_name='Despacho_Continuo')
-        st.download_button(
-            label="📥 Descargar Matriz Empalmada Completa (Excel)", data=buffer_raw.getvalue(),
-            file_name=f"Despacho_MultiDia_SEIN_{ini.strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary"
-        )
+            st.plotly_chart(crear_grafica_dinamica(
+                df_mat_total, 
+                marcadores=marcadores_globales, aplicar_colores=True, orden_fijo=ORDEN_TECNOLOGIAS, tipo_grafico=tipo_str_mat
+            ), use_container_width=True)
+            
+            st.markdown("#### 📋 Matriz de Datos Extraída")
+            st.dataframe(df_mat_total, use_container_width=True)
 
     # === MOTIVOS DE REPROGRAMAS ===
     with t_motivos_rdo:
         st.markdown("### 📋 Motivos de Reprogramación Operativa")
-        st.info("Extraído dinámicamente de la columna C del archivo Excel original de cada reprograma subido por el COES.")
+        st.info("Extracción dinámica de la matriz de excel de justificación. Enumera TODO reprograma detectado en servidor, sin importar si su despacho fue idéntico al anterior.")
         
         tabla_motivos = []
         for f in fechas_ordenadas:
-            if f not in dics_cache_dict: continue
-            progs = active_prog_dict[f]
+            if f not in data: continue
             
-            for p in sorted(set(progs)):
-                if "RDO" in p:
-                    motivo_texto = data[f]["Dataframes"].get(f"MOTIVO_{p}", "Motivo no disponible en el sistema.")
+            df_keys = data[f]["Dataframes"].keys()
+            for key in df_keys:
+                if str(key).startswith("MOTIVO_"):
+                    p = key.replace("MOTIVO_", "")
+                    motivo_texto = data[f]["Dataframes"][key]
                     tabla_motivos.append({
                         "Fecha": f.strftime("%d/%m/%Y"),
                         "Reprograma": p,
