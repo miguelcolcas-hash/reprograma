@@ -110,6 +110,11 @@ def cargar_df_desde_zip(zf, stem):
 def extraer_todas_centrales(df):
     series = {}
     if df is None or df.empty: return series
+    
+    if df.shape[1] > 0:
+        col_indice = df.columns[0]
+        df = df.dropna(subset=[col_indice])
+        
     invalid_cols = ["HORA", "TIEMPO", "FECHA", "ETAPA", "GENERADOR"]
     if df.shape[1] > 1:
         cols = [c for c in df.columns if not any(inv in str(c).upper() for inv in invalid_cols) and not str(c).startswith("Unnamed")]
@@ -127,6 +132,7 @@ def extraer_todas_centrales(df):
                 idx_validos.append(i)
                 series[nombre] = []
         for fila in df.iloc[start_idx:, 0].astype(str):
+            if fila.strip() == 'nan' or not fila.strip(): continue
             partes = [p.strip() for p in fila.split(",")]
             for nombre, i in zip(nombres_validos, idx_validos):
                 series[nombre].append(float(partes[i]) if i < len(partes) and partes[i] else 0.0)
@@ -155,8 +161,12 @@ def extraer_restricciones_100(df):
     return series
 
 def is_indisponible(c_name, p_idx, dics_cache, p_key):
-    if "RESTRICCIONES" not in dics_cache[p_key]: return False
-    r_dict = dics_cache[p_key]["RESTRICCIONES"]
+    r_dict = dics_cache[p_key].get("RESTRICCIONES", {})
+    if not r_dict and "PDO" in dics_cache:
+        r_dict = dics_cache["PDO"].get("RESTRICCIONES", {})
+        
+    if not r_dict: return False
+    
     if c_name in r_dict: return r_dict[c_name][p_idx]
     
     nc = str(c_name).replace(" ", "").upper()
@@ -196,8 +206,8 @@ def renombrar_con_sufijos(diccionario_series, tipo_origen):
         else: renamed[f"{c_clean} (TER)"] = vals
     return renamed
 
-# --- FUNCIÓN ORIGINAL RESTAURADA ---
-def extraer_motivo_dinamico(y, m, M, d, ddmm, l, headers):
+# --- LECTURA DE HORA Y MOTIVO DIRECTO DEL REPROGRAMA ---
+def extraer_info_reprograma(y, m, M, d, ddmm, l, headers):
     urls = [
         f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog%20{ddmm}{l}%2FReprog_{ddmm}{l}.xlsx",
         f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog%20{ddmm}%20{l}%2FReprog_{ddmm}{l}.xlsx",
@@ -205,22 +215,38 @@ def extraer_motivo_dinamico(y, m, M, d, ddmm, l, headers):
         f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog_{ddmm}{l}%2FReprog_{ddmm}{l}.xlsx",
         f"https://www.coes.org.pe/portal/browser/download?url=Operaci%C3%B3n%2FPrograma%20de%20Operaci%C3%B3n%2FReprograma%20Diario%20Operaci%C3%B3n%2F{y}%2F{m}_{M}%2FD%C3%ADa%20{d}%2FReprog_{ddmm}{l}%2F{ddmm}{l}.xlsx"
     ]
+    motivo = "No se encontró justificación en la celda."
+    hora_inicio = "N/A"
+    
     for u in urls:
         try:
             r = requests.get(u, headers=headers, timeout=10)
             if r.status_code == 200 and len(r.content) > 1000:
                 wb = openpyxl.load_workbook(io.BytesIO(r.content), data_only=True)
                 ws = wb.worksheets[0]
+                
+                val_b7 = ws.cell(row=7, column=2).value
+                if val_b7 is not None:
+                    if hasattr(val_b7, 'strftime'):
+                        hora_inicio = val_b7.strftime("%H:%M")
+                    else:
+                        val_str = str(val_b7).strip()
+                        if len(val_str) >= 5 and ":" in val_str:
+                            hora_inicio = val_str[:5]
+                
                 for row in range(1, ws.max_row + 1):
                     cell_value = ws.cell(row=row, column=3).value
                     if cell_value and "MOTIVO" in str(cell_value).upper():
                         motivo_val = ws.cell(row=row+1, column=4).value
-                        if motivo_val: return str(motivo_val).strip()
-                        else: return "Motivo encontrado pero vacío en la celda contigua."
-                return "No se encontró la palabra 'MOTIVO' en la columna C."
+                        if motivo_val:
+                            motivo = str(motivo_val).strip()
+                        break
+                        
+                return motivo, hora_inicio
         except:
             pass
-    return "No se pudo extraer el archivo de origen o hubo un error de lectura."
+            
+    return motivo, hora_inicio
 
 @st.cache_data(show_spinner=False, ttl=300)
 def extraer_datos_dia_memoria(f):
@@ -265,8 +291,9 @@ def extraer_datos_dia_memoria(f):
                     
                     if "RDO" in nombre:
                         letra = nombre.split("_")[-1]
-                        motivo = extraer_motivo_dinamico(y, m, M, d, ddmm, letra, headers)
+                        motivo, hora_inicio = extraer_info_reprograma(y, m, M, d, ddmm, letra, headers)
                         datos_dia["Dataframes"][f"MOTIVO_{nombre}"] = motivo
+                        datos_dia["Dataframes"][f"HORA_{nombre}"] = hora_inicio
                         
                     datos_dia["Log"].append(f"✅ {nombre}")
                     exito = True
@@ -288,66 +315,92 @@ def crear_grafica_dinamica(df_plot, marcadores=None, aplicar_colores=False, orde
     num_cols = [c for c in df_plot.columns if c != 'Hora']
     df_plot[num_cols] = df_plot[num_cols].apply(pd.to_numeric, errors='coerce').fillna(0).round(2)
     
-    df_plot['TOTAL_GRAFICA'] = df_plot[num_cols].sum(axis=1).round(2)
-    
-    if orden_fijo:
-        orden_columnas = [col for col in orden_fijo if col in df_plot.columns]
-    else:
-        totales_por_unidad = df_plot.drop(columns=['Hora', 'TOTAL_GRAFICA']).sum()
-        orden_columnas = totales_por_unidad.sort_values(ascending=False).index.tolist()
-    
-    cols_mantener = ['Hora', 'TOTAL_GRAFICA'] + orden_columnas
-    df_melt = df_plot[cols_mantener].melt(id_vars=['Hora', 'TOTAL_GRAFICA'], var_name='Unidad Generadora', value_name='Potencia_MW')
-    
-    df_melt['Potencia_Plot'] = df_melt['Potencia_MW']
-    
-    kw_args = {"data_frame": df_melt, "x": "Hora", "y": "Potencia_Plot", "color": "Unidad Generadora", "labels": {"Potencia_Plot": "Potencia Activa (MW)"}}
-    if aplicar_colores: kw_args["color_discrete_map"] = COLOR_MAP
-    
-    # Elección de motor gráfico dinámico
     if tipo_grafico == "barra":
-        fig = px.bar(**kw_args)
-    else:
-        fig = px.area(**kw_args)
+        # Desplazamiento de -1 minuto para que las 00:00 se sumen al día que corresponde
+        df_plot['Fecha'] = (df_plot['Hora'] - pd.Timedelta(minutes=1)).dt.strftime('%d/%m/%Y')
         
-    fig.update_xaxes(tickformat="%d/%m %H:%M", tickangle=45)
-    
-    # Superposición de la serie Total ∑
-    fig.add_scatter(x=df_plot['Hora'], y=df_plot['TOTAL_GRAFICA'], mode='lines', line=dict(width=0, color='rgba(0,0,0,0)'), name='<b>∑ TOTAL</b>', showlegend=False)
-    
-    for trace in fig.data:
-        y_vals = trace.y
-        hover_flags = []
-        for val in y_vals:
-            try:
-                if pd.isna(val) or float(val) <= 0.01:
-                    hover_flags.append('skip')
-                else:
-                    hover_flags.append('all')
-            except:
-                hover_flags.append('all')
+        df_daily = df_plot.groupby('Fecha')[num_cols].sum() / 2.0
+        df_daily = df_daily.reset_index()
+        df_daily['TOTAL_GRAFICA'] = df_daily[num_cols].sum(axis=1).round(2)
         
-        trace.hoverinfo = hover_flags
-        
-        if trace.name and 'TOTAL' in trace.name:
-            trace.hovertemplate = '<b>%{y:,.2f} MW</b><br>%{x|%d/%m %H:%M}'
+        if orden_fijo:
+            orden_columnas = [col for col in orden_fijo if col in df_daily.columns]
         else:
-            trace.hovertemplate = "%{y:,.2f} MW"
-    
-    if marcadores:
-        for ts, texto in marcadores:
-            fig.add_vline(x=ts, line_width=1.5, line_dash="dash", line_color="rgba(255,255,255,0.7)")
-            texto_limpio = texto.replace("(", "").replace(")", "")
-            texto_con_hora = f"{texto_limpio} {ts.strftime('%H:%M')}"
-            align = "left" if ts.hour == 0 and ts.minute == 30 else "center"
-            fig.add_annotation(
-                x=ts, y=1.02, yref="paper", text=f"<b>{texto_con_hora}</b>", showarrow=False, 
-                font=dict(size=10, color="white"), bgcolor="#e74c3c", bordercolor="white", 
-                borderwidth=1, borderpad=3, textangle=-90, yanchor="bottom", xanchor=align
-            )
+            totales = df_daily.drop(columns=['Fecha', 'TOTAL_GRAFICA']).sum()
+            orden_columnas = totales.sort_values(ascending=False).index.tolist()
             
-    fig.update_layout(hovermode="x unified", height=650, margin=dict(t=150, b=50, l=60, r=50))
-    return fig
+        cols_mantener = ['Fecha', 'TOTAL_GRAFICA'] + orden_columnas
+        df_melt = df_daily[cols_mantener].melt(id_vars=['Fecha', 'TOTAL_GRAFICA'], var_name='Unidad Generadora', value_name='Energía_MWh')
+        
+        kw_args = {"data_frame": df_melt, "x": "Fecha", "y": "Energía_MWh", "color": "Unidad Generadora", "labels": {"Energía_MWh": "Energía Diaria (MWh)"}}
+        if aplicar_colores: kw_args["color_discrete_map"] = COLOR_MAP
+        
+        fig = px.bar(**kw_args)
+        
+        fig.add_scatter(x=df_daily['Fecha'], y=df_daily['TOTAL_GRAFICA'], mode='markers+text', text=df_daily['TOTAL_GRAFICA'].apply(lambda x: f"{x:,.1f} MWh"), textposition="top center", marker=dict(color='rgba(0,0,0,0)'), name='<b>∑ TOTAL</b>', showlegend=False)
+        
+        for trace in fig.data:
+            if trace.name and 'TOTAL' in trace.name: pass
+            else: trace.hovertemplate = "%{y:,.2f} MWh<br>%{x}"
+            
+        fig.update_layout(hovermode="x unified", height=650, margin=dict(t=150, b=50, l=60, r=50), xaxis_title="Fecha Operativa")
+        return fig
+    else:
+        df_plot['TOTAL_GRAFICA'] = df_plot[num_cols].sum(axis=1).round(2)
+        
+        if orden_fijo:
+            orden_columnas = [col for col in orden_fijo if col in df_plot.columns]
+        else:
+            totales_por_unidad = df_plot.drop(columns=['Hora', 'TOTAL_GRAFICA']).sum()
+            orden_columnas = totales_por_unidad.sort_values(ascending=False).index.tolist()
+        
+        cols_mantener = ['Hora', 'TOTAL_GRAFICA'] + orden_columnas
+        df_melt = df_plot[cols_mantener].melt(id_vars=['Hora', 'TOTAL_GRAFICA'], var_name='Unidad Generadora', value_name='Potencia_MW')
+        
+        df_melt['Potencia_Plot'] = df_melt['Potencia_MW']
+        
+        kw_args = {"data_frame": df_melt, "x": "Hora", "y": "Potencia_Plot", "color": "Unidad Generadora", "labels": {"Potencia_Plot": "Potencia Activa (MW)"}}
+        if aplicar_colores: kw_args["color_discrete_map"] = COLOR_MAP
+        
+        fig = px.area(**kw_args)
+        fig.update_xaxes(tickformat="%d/%m %H:%M", tickangle=45)
+        
+        fig.add_scatter(x=df_plot['Hora'], y=df_plot['TOTAL_GRAFICA'], mode='lines', line=dict(width=0, color='rgba(0,0,0,0)'), name='<b>∑ TOTAL</b>', showlegend=False)
+        
+        for trace in fig.data:
+            y_vals = trace.y
+            hover_flags = []
+            for val in y_vals:
+                try:
+                    if pd.isna(val) or float(val) <= 0.01:
+                        hover_flags.append('skip')
+                    else:
+                        hover_flags.append('all')
+                except:
+                    hover_flags.append('all')
+            
+            trace.hoverinfo = hover_flags
+            
+            if trace.name and 'TOTAL' in trace.name:
+                trace.hovertemplate = '<b>%{y:,.2f} MW</b><br>%{x|%d/%m %H:%M}'
+            else:
+                trace.hovertemplate = "%{y:,.2f} MW"
+        
+        if marcadores:
+            for ts, texto in marcadores:
+                fig.add_vline(x=ts, line_width=1.5, line_dash="dash", line_color="rgba(255,255,255,0.7)")
+                texto_limpio = texto.replace("(", "").replace(")", "")
+                texto_con_hora = f"{texto_limpio} {ts.strftime('%H:%M')}"
+                # Ajustamos la alineación de la etiqueta dependiendo de si es inicio de día
+                align = "left" if ts.hour == 0 and ts.minute == 30 else "center"
+                fig.add_annotation(
+                    x=ts, y=1.02, yref="paper", text=f"<b>{texto_con_hora}</b>", showarrow=False, 
+                    font=dict(size=10, color="white"), bgcolor="#e74c3c", bordercolor="white", 
+                    borderwidth=1, borderpad=3, textangle=-90, yanchor="bottom", xanchor=align
+                )
+                
+        fig.update_layout(hovermode="x unified", height=650, margin=dict(t=150, b=50, l=60, r=50))
+        return fig
 
 # --- 6. INTERFAZ Y EJECUCIÓN ---
 st.sidebar.header("Parámetros de Fiscalización")
@@ -400,22 +453,44 @@ if 'datos_yupana' in st.session_state:
         active_prog = [progs[0]] * 48
         if len(progs) > 1:
             for p in progs[1:]:
-                tot = [0.0]*48
-                for v in dics_cache[p].get("HIDRO", {}).values(): tot = suma_elementos_variable(tot, rellenar_hasta_48(v))
-                for v in dics_cache[p].get("TERMICA", {}).values(): tot = suma_elementos_variable(tot, rellenar_hasta_48(v))
-                for v in dics_cache[p].get("RER", {}).values(): tot = suma_elementos_variable(tot, rellenar_hasta_48(v))
-                for i, val in enumerate(tot):
-                    if val > 100: 
-                        for j in range(i, 48): active_prog[j] = p
-                        break
+                hora_inicio_str = df_dia_sel.get(f"HORA_{p}")
+                inicio_idx = None
+                
+                if hora_inicio_str and hora_inicio_str != "N/A":
+                    try:
+                        partes = hora_inicio_str.split(":")
+                        h = int(partes[0])
+                        minuto = int(partes[1])
+                        inicio_idx = h * 2 + (1 if minuto >= 30 else 0)
+                    except:
+                        pass
+                
+                if inicio_idx is None:
+                    n_filas = 0
+                    for arch in ["HIDRO", "TERMICA", "RER"]:
+                        if arch in dics_cache[p] and dics_cache[p][arch]:
+                            for v in dics_cache[p][arch].values():
+                                if len(v) > n_filas:
+                                    n_filas = len(v)
+                    if n_filas > 0:
+                        n_filas = min(n_filas, 48)
+                        inicio_idx = 48 - n_filas
+                
+                if inicio_idx is not None and 0 <= inicio_idx < 48:
+                    for j in range(inicio_idx, 48):
+                        active_prog[j] = p
                         
         ts_dia = [datetime.combine(f, datetime.min.time()) + timedelta(minutes=30*(i+1)) for i in range(48)]
         p_actual = active_prog[0]
+        
+        # CORRECCIÓN: El PDO ahora se etiqueta directamente en el primer registro (00:30)
         marcadores_globales.append((ts_dia[0], p_actual))
+        
         for i in range(1, 48):
             if active_prog[i] != p_actual:
                 p_actual = active_prog[i]
-                marcadores_globales.append((ts_dia[i], p_actual))
+                # Los reprogramas siguen anclándose a su bloque de inicio respectivo
+                marcadores_globales.append((ts_dia[i-1], p_actual))
                 
         active_prog_dict[f] = active_prog
         ts_dict[f] = ts_dia
@@ -518,20 +593,19 @@ if 'datos_yupana' in st.session_state:
                 
             todas_centrales = sorted(active_cols)
             
-            # Controles Superiores
             col1, col2 = st.columns([3, 1])
             with col1:
                 filtro = st.multiselect(f"⚡ Filtrar Centrales:", options=todas_centrales, default=[], placeholder="Todas (vacío) o buscar...")
             with col2:
-                tipo_grafico = st.radio("Estilo de Gráfica:", ["Área Apilada", "Barras Apiladas"], horizontal=True, key=f"radio_{tipo_principal}")
+                tipo_grafico = st.radio("Estilo de Gráfica:", ["Área Apilada (MW)", "Barras Apiladas (Energía MWh/Día)"], horizontal=True, key=f"radio_{tipo_principal}")
                 
             lista_filtro = filtro if filtro else todas_centrales
             df_plot = df_total[['Hora'] + lista_filtro]
-            tipo_str = "barra" if tipo_grafico == "Barras Apiladas" else "area"
+            tipo_str = "barra" if "Energía" in tipo_grafico else "area"
             
             st.plotly_chart(crear_grafica_dinamica(df_plot, marcadores=marcadores_globales, tipo_grafico=tipo_str), use_container_width=True)
             
-            st.markdown("#### 📋 Matriz de Datos Extraída")
+            st.markdown("#### 📋 Matriz de Datos Extraída (Valores Originales en MW)")
             st.dataframe(df_plot, use_container_width=True)
 
     with t_hidro:
@@ -540,7 +614,7 @@ if 'datos_yupana' in st.session_state:
 
     with t_term:
         st.markdown("### 🔥 Despacho Térmico Continuo")
-        st.info("Consolida el **Despacho Activo Real** de unidades Térmicas y Biomasa. Totalmente homologado a la Matriz de Generación Total.")
+        st.info("Consolida el **Despacho Activo Real** de unidades Térmicas y Biomasa.")
         render_tab_generico("TERMICA")
 
     with t_eol:
@@ -554,7 +628,6 @@ if 'datos_yupana' in st.session_state:
     # === CAPACIDAD NO DESPACHADA ===
     with t_inactiva:
         st.markdown("### 🛑 Capacidad no Despachada (Diésel/Residual)")
-        st.info("Muestra las unidades disponibles pero NO despachadas cada media hora. Si la central enciende, o está en mantenimiento al 100%, su gráfica cae a 0 MW.")
         
         dfs_inactiva = []
         for f in fechas_ordenadas:
@@ -617,23 +690,18 @@ if 'datos_yupana' in st.session_state:
             num_cols = [c for c in df_total_inac.columns if c != 'Hora']
             
             if sum(df_total_inac[num_cols].sum()) > 0:
-                
                 col1, col2 = st.columns([3, 1])
                 todas_centrales_inactiva = sorted(list(num_cols))
                 with col1:
                     filtro_inactiva = st.multiselect("⚡ Filtrar Centrales:", options=todas_centrales_inactiva, default=todas_centrales_inactiva)
                 with col2:
-                    tipo_graf_inac = st.radio("Estilo de Gráfica:", ["Área Apilada", "Barras Apiladas"], horizontal=True, key="radio_inactiva")
+                    tipo_graf_inac = st.radio("Estilo de Gráfica:", ["Área Apilada (MW)", "Barras Apiladas (Energía Inactiva MWh/Día)"], horizontal=True, key="radio_inactiva")
                 
-                tipo_str_inac = "barra" if tipo_graf_inac == "Barras Apiladas" else "area"
+                tipo_str_inac = "barra" if "Energía" in tipo_graf_inac else "area"
                 
                 if filtro_inactiva:
                     df_plot_inac = df_total_inac[['Hora'] + filtro_inactiva]
-                    
-                    st.markdown("#### 📉 Capacidad no Despachada (Detallada)")
                     st.plotly_chart(crear_grafica_dinamica(df_plot_inac, marcadores=marcadores_globales, aplicar_colores=False, tipo_grafico=tipo_str_inac), use_container_width=True)
-                    
-                    st.markdown("#### 📋 Matriz de Datos Extraída")
                     st.dataframe(df_plot_inac, use_container_width=True)
                 else:
                     st.warning("Seleccione al menos una central para visualizar la gráfica.")
@@ -643,7 +711,6 @@ if 'datos_yupana' in st.session_state:
     # === INDISPONIBLE DIÉSEL ===
     with t_indisp:
         st.markdown("### 🛠️ Indisponible Diésel (Mantenimiento)")
-        st.info("Identifica centrales diésel no despachadas y grafica solo las que se encuentran indisponibles.")
         
         dfs_indisp = []
         indisponibles_lista = []
@@ -733,16 +800,21 @@ if 'datos_yupana' in st.session_state:
             if sum(df_total_indisp[num_cols].sum()) > 0:
                 col1, col2 = st.columns([3, 1])
                 with col2:
-                    tipo_graf_indisp = st.radio("Estilo de Gráfica:", ["Área Apilada", "Barras Apiladas"], horizontal=True, key="radio_indisp")
-                tipo_str_indisp = "barra" if tipo_graf_indisp == "Barras Apiladas" else "area"
+                    tipo_graf_indisp = st.radio("Estilo de Gráfica:", ["Área Apilada (MW)", "Barras Apiladas (Energía MWh/Día)"], horizontal=True, key="radio_indisp")
+                tipo_str_indisp = "barra" if "Energía" in tipo_graf_indisp else "area"
                 
-                st.markdown("#### 📉 Indisponibilidad Detallada (Mantenimiento)")
                 st.plotly_chart(crear_grafica_dinamica(df_total_indisp, marcadores=marcadores_globales, aplicar_colores=False, tipo_grafico=tipo_str_indisp), use_container_width=True)
-                
-                st.markdown("#### 📋 Matriz de Datos Extraída")
                 st.dataframe(df_total_indisp, use_container_width=True)
             else:
                 st.success("✅ No hubo centrales Diésel/Residual con potencia > 0 reportando indisponibilidad en el periodo.")
+
+        if indisponibles_lista:
+            st.markdown("#### 📝 Centrales Concordantes (Indisponibilidad Justificada en YUPANA)")
+            st.dataframe(pd.DataFrame(indisponibles_lista), use_container_width=True)
+            
+        if sin_match_lista:
+            st.markdown("#### ⚠️ Centrales sin Match en Restricciones (Las que figuran en Capacidad no Despachada)")
+            st.dataframe(pd.DataFrame(sin_match_lista), use_container_width=True)
 
     # === DEMANDA Y MATRIZ ENERGÉTICA ===
     with t_dem:
@@ -784,7 +856,6 @@ if 'datos_yupana' in st.session_state:
 
         st.markdown("---")
         st.markdown("### 📊 Matriz de Generación Acumulada por Tecnología")
-        st.info("Distribución energética global. Respeta al 100% las categorizaciones de combustible y no suma reservas rodantes.")
         
         if dfs_matriz:
             df_mat_total = pd.concat(dfs_matriz, ignore_index=True)
@@ -793,21 +864,18 @@ if 'datos_yupana' in st.session_state:
             
             col1, col2 = st.columns([3, 1])
             with col2:
-                tipo_graf_mat = st.radio("Estilo de Gráfica:", ["Área Apilada", "Barras Apiladas"], horizontal=True, key="radio_matriz")
-            tipo_str_mat = "barra" if tipo_graf_mat == "Barras Apiladas" else "area"
+                tipo_graf_mat = st.radio("Estilo de Gráfica:", ["Área Apilada (MW)", "Barras Apiladas (Energía Total MWh/Día)"], horizontal=True, key="radio_matriz")
+            tipo_str_mat = "barra" if "Energía" in tipo_graf_mat else "area"
             
             st.plotly_chart(crear_grafica_dinamica(
                 df_mat_total, 
                 marcadores=marcadores_globales, aplicar_colores=True, orden_fijo=ORDEN_TECNOLOGIAS, tipo_grafico=tipo_str_mat
             ), use_container_width=True)
-            
-            st.markdown("#### 📋 Matriz de Datos Extraída")
             st.dataframe(df_mat_total, use_container_width=True)
 
     # === MOTIVOS DE REPROGRAMAS ===
     with t_motivos_rdo:
         st.markdown("### 📋 Motivos de Reprogramación Operativa")
-        st.info("Extracción dinámica de la matriz de excel de justificación. Enumera TODO reprograma detectado en servidor, sin importar si su despacho fue idéntico al anterior.")
         
         tabla_motivos = []
         for f in fechas_ordenadas:
@@ -818,9 +886,12 @@ if 'datos_yupana' in st.session_state:
                 if str(key).startswith("MOTIVO_"):
                     p = key.replace("MOTIVO_", "")
                     motivo_texto = data[f]["Dataframes"][key]
+                    hora_inicio = data[f]["Dataframes"].get(f"HORA_{p}", "N/A")
+                    
                     tabla_motivos.append({
                         "Fecha": f.strftime("%d/%m/%Y"),
                         "Reprograma": p,
+                        "Hora de Inicio": hora_inicio,
                         "Justificación / Motivo": motivo_texto
                     })
                     
