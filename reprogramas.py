@@ -11,8 +11,52 @@ import openpyxl
 
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Supervisión YUPANA - Osinergmin", layout="wide", initial_sidebar_state="expanded")
+
+# Inyectar CSS para ocultar elementos de la interfaz de Streamlit
+st.markdown(
+    """
+    <style>
+    #GithubIcon,
+    #MainMenu,
+    header,
+    footer {
+        visibility: hidden;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 st.title("⚡ Dashboard de Supervisión Continua - Programas y Reprogramas")
 st.markdown("Fiscalización Dinámica Multi-Día de Curvas de Carga, Reprogramaciones y Capacidad Inactiva")
+
+# --- LÓGICA DE INICIO DE SESIÓN ---
+def check_credentials():
+    """Devuelve True si las credenciales son correctas."""
+    CORRECT_USERNAME = "vasmol"
+    CORRECT_PASSWORD = "supervisorvasmol"
+
+    if 'authenticated' not in st.session_state:
+        st.session_state['authenticated'] = False
+
+    if not st.session_state['authenticated']:
+        with st.form("login_form"):
+            st.header("Inicio de Sesión")
+            username = st.text_input("Usuario")
+            password = st.text_input("Contraseña", type="password")
+            submitted = st.form_submit_button("Ingresar")
+
+            if submitted:
+                if username == CORRECT_USERNAME and password == CORRECT_PASSWORD:
+                    st.session_state['authenticated'] = True
+                    st.rerun()
+                else:
+                    st.error("Usuario o contraseña incorrectos.")
+        return False
+    return True
+
+if not check_credentials():
+    st.stop()
 
 # --- 2. PARÁMETROS OPERATIVOS ---
 MES_TXT = [
